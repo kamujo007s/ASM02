@@ -1,0 +1,79 @@
+[
+  {
+    "device_name": "Server 2",
+    "application_name": "App_1",
+    "operating_system": "Ubuntu",
+    "os_version": "20.04",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_1",
+    "application_name": "App_1",
+    "operating_system": "Windows",
+    "os_version": "10",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_2",
+    "application_name": "App_1",
+    "operating_system": "Linux",
+    "os_version": "Ubuntu 20.04",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_3",
+    "application_name": "App_1",
+    "operating_system": "macoperating_system",
+    "os_version": "11.2.3",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_4",
+    "application_name": "App_1",
+    "operating_system": "Windows",
+    "os_version": "7",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_5",
+    "application_name": "App_1",
+    "operating_system": "Linux",
+    "os_version": "Centoperating_system 7",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_6",
+    "application_name": "App_1",
+    "operating_system": "Windows",
+    "os_version": "Server 2016",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_7",
+    "application_name": "App_1",
+    "operating_system": "Linux",
+    "os_version": "Debian 10",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_8",
+    "application_name": "App_1",
+    "operating_system": "macoperating_system",
+    "os_version": "10.15.7",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_9",
+    "application_name": "App_1",
+    "operating_system": "Windows",
+    "os_version": "XP",
+    "__v": 0
+  },
+  {
+    "device_name": "Asset_10",
+    "application_name": "App_1",
+    "operating_system": "Linux",
+    "os_version": "Red Hat 8",
+    "__v": 0
+  }
+]

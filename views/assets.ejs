@@ -1,0 +1,103 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asset CVE Mapping</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        .risk-level {
+            font-weight: bold;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        .Critical { background-color: red; color: white; }
+        .High { background-color: orange; color: white; }
+        .Medium { background-color: yellow; color: black; }
+        .Low { background-color: green; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Asset CVE Mapping</h1>
+        <form class="form-inline mb-4" method="get" action="/cve/assets" id="filter-form">
+            <div class="form-group mr-2">
+                <label for="keyword" class="mr-2">Search</label>
+                <input type="text" class="form-control" id="keyword" name="keyword" value="<%- keyword %>" placeholder="Enter keyword">
+            </div>
+            <div class="form-group mr-2">
+                <label for="os" class="mr-2">Operating System</label>
+                <select class="form-control" id="os" name="os">
+                    <option value="">All</option>
+                    <% uniqueOs.forEach(os => { %>
+                        <option value="<%= os %>" <%= osFilter === os ? 'selected' : '' %>><%= os %></option>
+                    <% }) %>
+                </select>
+            </div>
+            <div class="form-group mr-2">
+                <label for="version" class="mr-2">Version</label>
+                <select class="form-control" id="version" name="version">
+                    <option value="">All</option>
+                    <% if (osFilter) { %>
+                        <% versionsByOs[osFilter].forEach(version => { %>
+                            <option value="<%= version %>" <%= versionFilter === version ? 'selected' : '' %>><%= version %></option>
+                        <% }) %>
+                    <% } %>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Filter</button>
+        </form>
+        <% mappedAssets.forEach(item => { %>
+            <h2><%= item.asset.name %> (OS: <%= item.asset.os %> <%= item.asset.version %>)</h2>
+            <table class="table table-bordered mb-5">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>OS</th>
+                        <th>CVSS Score</th>
+                        <th>Risk Level</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% item.cves.forEach(cve => { %>
+                        <tr>
+                            <td><%= cve.id %></td>
+                            <td><%= item.asset.os %></td>
+                            <td><%= cve.score %></td>
+                            <td><span class="risk-level <%= cve.riskLevel %>"><%= cve.riskLevel %></span></td>
+                            <td><%- cve.descriptions.find(desc => desc.lang === 'en').value %></td>
+                        </tr>
+                    <% }) %>
+                </tbody>
+            </table>
+        <% }) %>
+    </div>
+    <script>
+        document.getElementById('keyword').addEventListener('input', function() {
+            document.getElementById('os').selectedIndex = 0;
+            document.getElementById('version').selectedIndex = 0;
+        });
+
+        document.getElementById('os').addEventListener('change', function() {
+            document.getElementById('keyword').value = '';
+            document.getElementById('version').innerHTML = '<option value="">All</option>';
+            if (this.value && versionsByOs[this.value]) {
+                versionsByOs[this.value].forEach(version => {
+                    const option = document.createElement('option');
+                    option.value = version;
+                    option.textContent = version;
+                    document.getElementById('version').appendChild(option);
+                });
+            }
+            document.getElementById('filter-form').submit();
+        });
+
+        document.getElementById('version').addEventListener('change', function() {
+            document.getElementById('keyword').value = '';
+            document.getElementById('filter-form').submit();
+        });
+
+    </script>
+</body>
+</html> -->

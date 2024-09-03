@@ -1,0 +1,120 @@
+// asset.js
+const express = require('express');
+const router = express.Router();
+const multer = require('multer');
+const csvParser = require('csv-parser');
+const fs = require('fs');
+const path = require('path');
+const Asset = require('../models/asset');
+const { mapAssetsToCves } = require('./route');
+const xlsx = require('xlsx');
+
+// Config Multer for file upload
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadPath = path.join(__dirname, '..', 'uploads/');
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath);
+    }
+    cb(null, uploadPath); // กำหนดตำแหน่งสำหรับเก็บไฟล์
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname)); // กำหนดชื่อไฟล์
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// Helper function to process CSV
+const processCsv = async (filePath) => {
+  return new Promise((resolve, reject) => {
+    const assets = [];
+    fs.createReadStream(filePath)
+      .pipe(csvParser())
+      .on('data', (row) => {
+        assets.push({
+          device_name: row.device_name,
+          application_name: row.application_name,
+          operating_system: row.operating_system,
+          os_version: row.os_version,
+        });
+      })
+      .on('end', () => {
+        resolve(assets);
+      })
+      .on('error', (error) => {
+        reject(error);
+      });
+  });
+};
+
+const processExcel = async (filePath) => {
+  const workbook = xlsx.readFile(filePath);
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+  const assets = worksheet.map(row => {
+    const { Device_Name, Application_Name, Operating_System, OS_Version } = row;
+
+    if (!Device_Name || !Application_Name || !Operating_System || !OS_Version) {
+      console.error('Missing required fields in row:', row);
+      return null; // หรือเพิกเฉยแถวนี้
+    }
+
+    return {
+      device_name: Device_Name,
+      application_name: Application_Name,
+      operating_system: Operating_System,
+      os_version: OS_Version,
+    };
+  }).filter(asset => asset !== null);
+
+  return assets;
+};
+
+
+router.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    const fileType = path.extname(req.file.originalname).toLowerCase();
+    let assets = [];
+
+    if (fileType === '.csv') {
+      assets = await processCsv(req.file.path);
+    } else if (fileType === '.xlsx' || fileType === '.xls') {
+      assets = await processExcel(req.file.path);
+    } else {
+      return res.status(400).send('Unsupported file type');
+    }
+
+    if (assets.length === 0) {
+      return res.status(400).send('No valid assets found in the file');
+    }
+
+    await Asset.insertMany(assets);
+    await mapAssetsToCves(); // Map assets to CVEs after adding assets
+
+    res.status(200).send('File uploaded and assets added successfully');
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    res.status(500).send('Server error during file upload');
+  } finally {
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path); // Remove the file after processing
+    }
+  }
+});
+
+// Route to handle manual asset addition
+router.post('/', async (req, res) => {
+  try {
+    const newAsset = new Asset(req.body);
+    await newAsset.save();
+    await mapAssetsToCves(); // Map assets to CVEs after adding the new asset
+    res.status(201).send(newAsset);
+  } catch (error) {
+    console.error('Error adding asset manually:', error);
+    res.status(500).send('Server error during asset addition');
+  }
+});
+
+module.exports = router;

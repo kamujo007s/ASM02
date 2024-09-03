@@ -1,0 +1,66 @@
+[{
+  "name": "Server 2",
+  "os": "Ubuntu",
+  "version": "20.04",
+  "__v": 0
+},
+{
+  "name": "Asset_1",
+  "os": "Windows",
+  "version": "10",
+  "__v": 0
+},
+{
+  "name": "Asset_2",
+  "os": "Linux",
+  "version": "Ubuntu 20.04",
+  "__v": 0
+},
+{
+  "name": "Asset_3",
+  "os": "macOS",
+  "version": "11.2.3",
+  "__v": 0
+},
+{
+  "name": "Asset_4",
+  "os": "Windows",
+  "version": "7",
+  "__v": 0
+},
+{
+  "name": "Asset_5",
+  "os": "Linux",
+  "version": "CentOS 7",
+  "__v": 0
+},
+{
+  "name": "Asset_6",
+  "os": "Windows",
+  "version": "Server 2016",
+  "__v": 0
+},
+{
+  "name": "Asset_7",
+  "os": "Linux",
+  "version": "Debian 10",
+  "__v": 0
+},
+{
+  "name": "Asset_8",
+  "os": "macOS",
+  "version": "10.15.7",
+  "__v": 0
+},
+{
+  "name": "Asset_9",
+  "os": "Windows",
+  "version": "XP",
+  "__v": 0
+},
+{
+  "name": "Asset_10",
+  "os": "Linux",
+  "version": "Red Hat 8",
+  "__v": 0
+}]

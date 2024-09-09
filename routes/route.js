@@ -6,7 +6,6 @@ const Asset = require("../models/asset");
 const Vulnerability = require("../models/vulnerability"); // ต้องสร้าง model สำหรับ Vulnerability ด้วย
 const https = require("https");
 const { query, validationResult } = require("express-validator");
-const { Configuration, OpenAIApi } = require('openai'); // เพิ่มส่วนนี้สำหรับ GPT
 
 
 const axiosInstance = axios.create({
@@ -69,7 +68,7 @@ const getRiskLevel = (score, version) => {
 
 const fetchDataFromApi = async (asset) => {
   const { operating_system, os_version } = asset;
-  const keyword = `${operating_system} ${os_version}`;
+  const keyword = `${operating_system}`;
   const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(
     keyword
   )}`;
@@ -228,9 +227,7 @@ const mapAssetsToCves = async () => {
         };
       });
 
-      console.log(configurations); // configurations มีการกำหนดค่าแล้ว
-
-      await Vulnerability.insertMany(mappedCves);
+      await Vulnerability.insertMany(mappedCves); // ลบ console.log(configurations);
       console.log(
         `Mapped CVEs for asset ${asset.device_name} and saved to vulnerabilities collection.`
       );
@@ -239,6 +236,7 @@ const mapAssetsToCves = async () => {
     console.error("Error mapping assets to CVEs:", error);
   }
 };
+
 
 // Route for updating and mapping assets to CVEs
 router.get("/update", async (req, res) => {
@@ -258,7 +256,7 @@ router.get(
     query("operating_system").optional().isString().trim().escape(),
     query("os_version").optional().isString().trim().escape(),
     query("keyword").optional().isString().trim().escape(),
-    query("riskLevel").optional().isString().trim().escape(), // เพิ่มพารามิเตอร์นี้
+    query("riskLevel").optional().isString().trim().escape(), 
     query("page").optional().isInt({ min: 1 }).toInt(),
     query("limit").optional().isInt({ min: 1 }).toInt(),
   ],
@@ -270,8 +268,8 @@ router.get(
 
     try {
       const {
-        os,
-        version,
+        operating_system,
+        os_version,
         keyword,
         riskLevel,
         page = 1,
@@ -279,27 +277,39 @@ router.get(
       } = req.query;
 
       let vulnerabilitiesQuery = {};
-      if (os) {
-        vulnerabilitiesQuery.os = os;
+
+      // กรองตามระบบปฏิบัติการ (ใช้ operating_system แทน os)
+      if (operating_system) {
+        vulnerabilitiesQuery.operating_system = operating_system;
       }
-      if (version) {
-        vulnerabilitiesQuery.version = version;
+
+      // กรองตามเวอร์ชันของระบบปฏิบัติการ (ใช้ os_version แทน version)
+      if (os_version) {
+        vulnerabilitiesQuery.os_version = os_version;
       }
+
+      // กรองตามคีย์เวิร์ด
       if (keyword) {
         vulnerabilitiesQuery.$or = [
-          { os: { $regex: new RegExp(keyword, "i") } },
+          { operating_system: { $regex: new RegExp(keyword, "i") } },
           { assetName: { $regex: new RegExp(keyword, "i") } },
-          { version: { $regex: new RegExp(keyword, "i") } },
+          { os_version: { $regex: new RegExp(keyword, "i") } },
           { "descriptions.value": { $regex: new RegExp(keyword, "i") } },
         ];
       }
+
+      // กรองตามระดับความเสี่ยง
       if (riskLevel) {
         vulnerabilitiesQuery.riskLevel = riskLevel;
       }
 
+
+      // นับจำนวนเอกสารทั้งหมดที่ตรงกับเงื่อนไข
       const totalCount = await Vulnerability.countDocuments(
         vulnerabilitiesQuery
       );
+
+      // ดึงข้อมูลตามคิวรีที่ตั้งไว้
       const vulnerabilities = await Vulnerability.find(vulnerabilitiesQuery)
         .skip((page - 1) * limit)
         .limit(limit);
@@ -314,16 +324,21 @@ router.get(
 
 router.get("/assets/os-versions", async (req, res) => {
   try {
-    const uniqueOs = await Asset.distinct("operating_system");
+    const uniqueOs = await Asset.distinct("operating_system");  // ใช้ distinct เพื่อดึงค่าระบบปฏิบัติการที่ไม่ซ้ำ
     const versionsByOs = {};
+    
     for (const os of uniqueOs) {
-      versionsByOs[os] = await Asset.distinct("os_version", { os });
+      // ดึง os_version โดยใช้เงื่อนไขที่ถูกต้องว่า operating_system ตรงกับค่า os
+      versionsByOs[os] = await Asset.distinct("os_version", { operating_system: os });
     }
+
     res.json({ uniqueOs, versionsByOs });
   } catch (error) {
+    console.error("Error fetching OS and versions:", error);
     res.status(500).send("Error fetching data");
   }
 });
+
 
 router.get('/vulnerability-summary', async (req, res) => {
   try {
@@ -332,6 +347,7 @@ router.get('/vulnerability-summary', async (req, res) => {
         $group: {
           _id: {
             operating_system: '$operating_system',
+            os_version: '$os_version',  
             riskLevel: '$riskLevel',
           },
           count: { $sum: 1 },
@@ -339,7 +355,10 @@ router.get('/vulnerability-summary', async (req, res) => {
       },
       {
         $group: {
-          _id: '$_id.operating_system',
+          _id: {
+            operating_system: '$_id.operating_system',
+            os_version: '$_id.os_version',
+          },
           riskLevels: {
             $push: {
               riskLevel: '$_id.riskLevel',
@@ -352,11 +371,15 @@ router.get('/vulnerability-summary', async (req, res) => {
       {
         $project: {
           _id: 0,
-          operating_system: '$_id',
+          operating_system: '$_id.operating_system',
+          os_version: '$_id.os_version',
           riskLevels: 1,
           totalCount: 1,
         },
       },
+      {
+        $sort: { 'operating_system': 1, 'os_version': 1 } // จัดเรียงตาม OS และเวอร์ชัน
+      }
     ]);
 
     res.json(summary);
@@ -365,24 +388,49 @@ router.get('/vulnerability-summary', async (req, res) => {
     res.status(500).send('Error fetching vulnerability summary');
   }
 });
-router.post('/chatbot', async (req, res) => {
-  const { message } = req.body;
 
+const checkMatchingCve = async (operating_system, os_version) => {
+  // ค้นหา CVE ที่มี configurations ตรงกับ OS หรือ OS+Version
+  const cves = await Cve.find({
+    'configurations.nodes.cpeMatch': {
+      $elemMatch: {
+        $or: [
+          { criteria: new RegExp(`cpe:.*:o:${operating_system.toLowerCase()}:`, 'i') },
+          { criteria: new RegExp(`cpe:.*:o:${operating_system.toLowerCase()}:.*:${os_version}:`, 'i') }
+        ]
+      }
+    }
+  });
+
+  // ถ้ามี CVE ที่ตรงให้คืนค่า true ถ้าไม่มีก็คืนค่า false
+  return cves.length > 0;
+};
+
+// เส้นทางสำหรับดึงข้อมูล asset พร้อมสถานะ
+router.get('/assets-with-status', async (req, res) => {
   try {
-    // ส่งคำขอไปยัง API ของ GPT ที่คุณปรับแต่ง
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: 'Updul', // ใช้โมเดลที่คุณสร้างไว้
-      messages: [{ role: 'user', content: message }],
-      // อาจจะต้องเพิ่ม Authentication ถ้าจำเป็น
-    }, 
+    const assets = await Asset.find(); // ดึงข้อมูล asset ทั้งหมด
+
+    const assetWithStatus = await Promise.all(
+      assets.map(async (asset) => {
+        const match = await checkMatchingCve(asset.operating_system, asset.os_version);
+
+        return {
+          ...asset.toObject(),
+          status: match ? 'True' : 'False'
+        };
+      })
     );
 
-    res.json({ response: response.data.choices[0].message.content });
+    res.json(assetWithStatus);
   } catch (error) {
-    console.error('Error in Chatbot:', error);
-    res.status(500).json({ error: 'Chatbot failed' });
+    console.error('Error fetching assets with status:', error);
+    res.status(500).send('Error fetching assets with status');
   }
 });
+
+
+
 // ส่งออก router และฟังก์ชัน fetchDataFromApi เพื่อใช้งานในไฟล์อื่น
 module.exports = {
   router,

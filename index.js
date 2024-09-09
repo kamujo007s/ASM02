@@ -11,6 +11,7 @@ const Asset = require('./models/asset');
 const assetRoutes = require('./routes/asset');
 const bodyParser = require('body-parser');
 
+const assetList = require('./routes/assetList');
 const { router: cveRoutes, fetchDataFromApi } = require('./routes/route');
 
 app.use(helmet());
@@ -27,6 +28,7 @@ app.use(express.static(path.join(__dirname, 'front-end/build')));
 // API Routes
 app.use('/api/assets', assetRoutes); // เส้นทางสำหรับจัดการ assets
 app.use('/cve', cveRoutes); // เส้นทางสำหรับจัดการ CVE
+app.use('/assetList', assetList); // เส้นทางสำหรับจัดการ assets
 
 // Serve the React app
 app.get('*', (req, res) => {

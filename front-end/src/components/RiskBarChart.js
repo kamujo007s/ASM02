@@ -1,4 +1,3 @@
-// RiskBarChart.js
 import React from 'react';
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, BarElement, Tooltip, Legend, CategoryScale, LinearScale } from 'chart.js';
@@ -46,7 +45,7 @@ const RiskBarChart = ({ riskLevels, osName, version }) => {
   const options = {
     plugins: {
       legend: {
-        display: false, // ซ่อน legend สำหรับกราฟแท่ง
+        display: false,
       },
       tooltip: {
         callbacks: {
@@ -58,8 +57,8 @@ const RiskBarChart = ({ riskLevels, osName, version }) => {
         },
       },
     },
-    maintainAspectRatio: false,
-    responsive: true,
+    maintainAspectRatio: false,  // ปิด responsive aspect ratio เพื่อควบคุมขนาด
+    responsive: false,  // ปิดการตอบสนองต่อการขยายขนาดหน้าจอ
     scales: {
       y: {
         beginAtZero: true,
@@ -71,9 +70,8 @@ const RiskBarChart = ({ riskLevels, osName, version }) => {
   };
 
   return (
-    <div style={{ width: '300px', height: '300px', margin: '20px' }}>
-      <h4>{osName} - {version}</h4>
-      <Bar data={data} options={options} />
+    <div className="chart-box">
+      <Bar data={data} options={options} width={300} height={300} />
     </div>
   );
 };

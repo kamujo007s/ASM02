@@ -6,7 +6,8 @@ const Asset = require("../models/asset");
 const Vulnerability = require("../models/vulnerability"); // ต้องสร้าง model สำหรับ Vulnerability ด้วย
 const https = require("https");
 const { query, validationResult } = require("express-validator");
-const sanitize = require("mongo-sanitize");
+const { Configuration, OpenAIApi } = require('openai'); // เพิ่มส่วนนี้สำหรับ GPT
+
 
 const axiosInstance = axios.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false }),
@@ -117,15 +118,16 @@ const fetchDataFromApi = async (asset) => {
         const lastModified = cveData.lastModified;
 
         // Extract cpeMatch from configurations
-        const cpeMatches = cveData.configurations
-          .flatMap((config) =>
-            config.nodes.flatMap((node) => node.cpeMatch || [])
-          )
-          .map((cpeMatch) => ({
-            criteria: cpeMatch.criteria,
-            matchCriteriaId: cpeMatch.matchCriteriaId,
-          }));
-
+        // ส่วนที่ควรแก้ไข
+        const cpeMatches =
+          cveData.configurations?.flatMap((config) =>
+            config.nodes?.flatMap((node) =>
+              node.cpeMatch?.map((match) => ({
+                criteria: match.criteria,
+                matchCriteriaId: match.matchCriteriaId,
+              }))
+            )
+          ) || [];
         const vulnerabilityData = {
           asset: asset._id,
           device_name: asset.device_name,
@@ -199,9 +201,10 @@ const mapAssetsToCves = async () => {
         const score = cvss.score; // แยกค่าจาก cvss object
         const riskLevel = getRiskLevel(score, cvss.version); // ใช้ score และ version ในการคำนวณระดับความเสี่ยง
 
-        const configurations = cveData.configurations?.flatMap(config =>
-          config.nodes?.flatMap(node =>
-            node.cpeMatch?.map(match => ({
+        // กำหนดค่า configurations
+        const configurations = cveData.configurations?.flatMap((config) =>
+          config.nodes?.flatMap((node) =>
+            node.cpeMatch?.map((match) => ({
               criteria: match.criteria,
               matchCriteriaId: match.matchCriteriaId,
             }))
@@ -218,12 +221,14 @@ const mapAssetsToCves = async () => {
           cvssScore: score, // เก็บเฉพาะคะแนนของ CVSS
           riskLevel: riskLevel,
           descriptions: cveData.descriptions,
-          configurations: configurations,
+          configurations: configurations, // ใช้งาน configurations ที่กำหนดค่าแล้ว
           published: cveData.published,
           lastModified: cveData.lastModified,
           cvssVersion: cvss.version, // เก็บเวอร์ชันของ CVSS
         };
       });
+
+      console.log(configurations); // configurations มีการกำหนดค่าแล้ว
 
       await Vulnerability.insertMany(mappedCves);
       console.log(
@@ -234,8 +239,6 @@ const mapAssetsToCves = async () => {
     console.error("Error mapping assets to CVEs:", error);
   }
 };
-
-
 
 // Route for updating and mapping assets to CVEs
 router.get("/update", async (req, res) => {
@@ -322,6 +325,64 @@ router.get("/assets/os-versions", async (req, res) => {
   }
 });
 
+router.get('/vulnerability-summary', async (req, res) => {
+  try {
+    const summary = await Vulnerability.aggregate([
+      {
+        $group: {
+          _id: {
+            operating_system: '$operating_system',
+            riskLevel: '$riskLevel',
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $group: {
+          _id: '$_id.operating_system',
+          riskLevels: {
+            $push: {
+              riskLevel: '$_id.riskLevel',
+              count: '$count',
+            },
+          },
+          totalCount: { $sum: '$count' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          operating_system: '$_id',
+          riskLevels: 1,
+          totalCount: 1,
+        },
+      },
+    ]);
+
+    res.json(summary);
+  } catch (error) {
+    console.error('Error fetching vulnerability summary:', error);
+    res.status(500).send('Error fetching vulnerability summary');
+  }
+});
+router.post('/chatbot', async (req, res) => {
+  const { message } = req.body;
+
+  try {
+    // ส่งคำขอไปยัง API ของ GPT ที่คุณปรับแต่ง
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: 'Updul', // ใช้โมเดลที่คุณสร้างไว้
+      messages: [{ role: 'user', content: message }],
+      // อาจจะต้องเพิ่ม Authentication ถ้าจำเป็น
+    }, 
+    );
+
+    res.json({ response: response.data.choices[0].message.content });
+  } catch (error) {
+    console.error('Error in Chatbot:', error);
+    res.status(500).json({ error: 'Chatbot failed' });
+  }
+});
 // ส่งออก router และฟังก์ชัน fetchDataFromApi เพื่อใช้งานในไฟล์อื่น
 module.exports = {
   router,

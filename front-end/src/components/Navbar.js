@@ -1,20 +1,30 @@
-//Navbar.js
 import React from 'react';
 import { Link } from 'react-router-dom';
 
 const Navbar = () => {
   return (
-    <nav className="navbar navbar-expand-lg navbar-light ps-2" style={{ backgroundColor: '#0047BB' }}>
-      <Link className="navbar-brand text-white" to="/">Home</Link>
-      <div className="collapse navbar-collapse">
-        <ul className="navbar-nav mr-auto">
-          <li className="nav-item">
-            <Link className="nav-link text-white" to="/upload">Upload Asset</Link>
-          </li>
-          <li className="nav-item">
-            <Link className="nav-link text-white" to="/add-manual">Add Asset Manually</Link>
-          </li>
-        </ul>
+    <nav className="navbar navbar-expand-lg navbar-dark" style={{ backgroundColor: '#0047BB' }}>
+      <div className="container-fluid">
+        <Link className="navbar-brand text-white" to="/">Home</Link>
+        <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+          <span className="navbar-toggler-icon"></span>
+        </button>
+        <div className="collapse navbar-collapse" id="navbarNav">
+          <ul className="navbar-nav ms-auto">
+            <li className="nav-item">
+              <Link className="nav-link text-white" to="/upload">Upload Asset</Link>
+            </li>
+            <li className="nav-item">
+              <Link className="nav-link text-white" to="/add-manual">Add Asset Manually</Link>
+            </li>
+            <li className="nav-item">
+              <Link className="nav-link text-white" to="/risk-dashboard">Dashboard</Link>
+            </li>
+            <li className="nav-item">
+              <Link className="nav-link text-white" to="/chatbot">Chatbot</Link>
+            </li>
+          </ul>
+        </div>
       </div>
     </nav>
   );

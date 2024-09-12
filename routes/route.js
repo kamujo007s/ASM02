@@ -6,6 +6,7 @@ const Asset = require("../models/asset");
 const Vulnerability = require("../models/vulnerability"); // ต้องสร้าง model สำหรับ Vulnerability ด้วย
 const https = require("https");
 const { query, validationResult } = require("express-validator");
+const e = require("express");
 
 
 const axiosInstance = axios.create({
@@ -68,7 +69,11 @@ const getRiskLevel = (score, version) => {
 
 const fetchDataFromApi = async (asset) => {
   const { operating_system, os_version } = asset;
-  const keyword = `${operating_system}`;
+  let keyword = `${operating_system}`; // ใช้ทั้ง OS และ Version เป็น Keyword
+  // ถ้า keyword เป็น Linux จะเป็น Linux Red Hat ให้เป็น Red Hat
+  if (keyword.toLowerCase().includes("linux")) {
+    keyword = "Red Hat";
+  }
   const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(
     keyword
   )}`;
@@ -92,6 +97,17 @@ const fetchDataFromApi = async (asset) => {
       const batch = vulnerabilities.slice(i, i + 10);
 
       for (const vuln of batch) {
+        // ตรวจสอบว่า keyword มีอยู่ใน description หรือไม่
+        const descriptionMatch = vuln.cve.descriptions.some(description =>
+          description.value.toLowerCase().includes(keyword.toLowerCase())
+        );
+
+        if (!descriptionMatch) {
+          // ถ้าไม่มี keyword ใน description ให้ข้ามไป
+          console.log(`Skipping CVE ID: ${vuln.cve.id} as it doesn't match the keyword: ${keyword}`);
+          continue;
+        }
+
         const result = await Cve.updateOne(
           { id: vuln.cve.id },
           {
@@ -117,7 +133,6 @@ const fetchDataFromApi = async (asset) => {
         const lastModified = cveData.lastModified;
 
         // Extract cpeMatch from configurations
-        // ส่วนที่ควรแก้ไข
         const cpeMatches =
           cveData.configurations?.flatMap((config) =>
             config.nodes?.flatMap((node) =>

@@ -1,3 +1,4 @@
+//route.js
 const axios = require("axios");
 const express = require("express");
 const router = express.Router();
@@ -59,10 +60,12 @@ const getRiskLevel = (score, version) => {
     if (score >= 4.0 && score <= 6.9) return "Medium";
     if (score >= 7.0 && score <= 8.9) return "High";
     if (score >= 9.0 && score <= 10.0) return "Critical";
+    else return "null";
   } else if (version === "2.0") {
     if (score >= 0.0 && score <= 3.9) return "Low";
     if (score >= 4.0 && score <= 6.9) return "Medium";
     if (score >= 7.0 && score <= 10.0) return "High";
+    else return "null";
   }
   return "Unknown"; // กรณีที่ไม่ตรงกับเงื่อนไขด้านบน
 };
@@ -72,7 +75,7 @@ const fetchDataFromApi = async (asset) => {
   let keyword = `${operating_system}`; // ใช้ทั้ง OS และ Version เป็น Keyword
   // ถ้า keyword เป็น Linux จะเป็น Linux Red Hat ให้เป็น Red Hat
   if (keyword.toLowerCase().includes("linux")) {
-    keyword = "Red Hat";
+    keyword = "Red Hat " + os_version;
   }
   const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(
     keyword

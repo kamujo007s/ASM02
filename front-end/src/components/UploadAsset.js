@@ -1,14 +1,15 @@
-//UploadAsset.js
 import React, { useState } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { Upload, Button, Card, ConfigProvider, theme } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
 
 const UploadAsset = () => {
   const [file, setFile] = useState(null);
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+  const handleFileChange = ({ file }) => {
+    setFile(file.originFileObj);
   };
 
   const handleUpload = async () => {
@@ -22,13 +23,12 @@ const UploadAsset = () => {
 
     // รีเซตฟอร์มทันทีเมื่อกดปุ่ม Upload
     setFile(null);
-    document.getElementById('upload-form').reset();
 
     // แสดง toast ทันทีเมื่อเริ่มต้นการอัปโหลด
     const id = toast.loading('Uploading file...', { position: "top-right" });
 
     try {
-      const response = await axios.post('/api/assets/upload', formData, {
+      const response = await axios.post('http://localhost:3012/api/assets/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -45,7 +45,7 @@ const UploadAsset = () => {
       });
 
       try {
-        const updateResponse = await axios.get('/cve/update'); // Fetch and map data after file upload
+        const updateResponse = await axios.get('http://192.168.123.133:3012/cve/update'); // Fetch and map data after file upload
         console.log('CVE update response:', updateResponse);
         toast.success('Data updated successfully', { position: "top-right" });
       } catch (updateError) {
@@ -84,26 +84,37 @@ const UploadAsset = () => {
   };
 
   return (
-    <div className="container mt-5">
-      <ToastContainer /> {/* สำหรับแสดง Toast */}
-      <div className="card">
-        <div className="card-header text-white" style={{ backgroundColor: '#0047BB' }}>
-          Upload Asset
-        </div>
-        <div className="card-body">
-          <form id="upload-form"> {/* ใช้ฟอร์มสำหรับรีเซต input */}
-            <input 
-              type="file" 
-              onChange={handleFileChange} 
-              className="form-control" 
-            />
-            <button type="button" onClick={handleUpload} className="btn btn-primary mt-3" disabled={!file}>
-              Upload
-            </button>
-          </form>
-        </div>
+    <ConfigProvider
+    theme={{
+      algorithm: theme.darkAlgorithm,
+      token: {
+        colorPrimary: "#f5222d",
+        colorInfo: "#a970f9",
+        colorSuccess: "#a970f9"
+      },
+    }}
+  >
+      <div className="container mt-5">
+        <ToastContainer /> {/* สำหรับแสดง Toast */}
+        <Card title="Upload Asset" style={{ backgroundColor: '#1f1f1f', color: '#fff' }}> {/* ใช้สีสำหรับ Dark Theme */}
+          <Upload 
+            beforeUpload={() => true} // Disable automatic upload
+            onChange={handleFileChange}
+            maxCount={1} // Allow only one file at a time
+          >
+            <Button icon={<UploadOutlined />}>Select File</Button>
+          </Upload>
+          <Button 
+            type="primary" 
+            onClick={handleUpload} 
+            disabled={!file} 
+            style={{ marginTop: '20px' }}
+          >
+            Upload
+          </Button>
+        </Card>
       </div>
-    </div>
+    </ConfigProvider>
   );
 };
 

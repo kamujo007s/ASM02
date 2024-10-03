@@ -1,0 +1,18 @@
+/* Navbar.css */
+.desktop-menu {
+    display: block;
+  }
+  
+  .mobile-menu {
+    display: none;
+  }
+  
+  @media (max-width: 768px) {
+    .desktop-menu {
+      display: none;
+    }
+    .mobile-menu {
+      display: block;
+    }
+  }
+  

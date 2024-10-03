@@ -1,25 +1,26 @@
-//RiskBarChart.js
 import React from 'react';
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, BarElement, Tooltip, Legend, CategoryScale, LinearScale } from 'chart.js';
+import { ConfigProvider, theme } from 'antd';
 
 ChartJS.register(BarElement, Tooltip, Legend, CategoryScale, LinearScale);
 
 const RiskBarChart = ({ riskLevels, osName, version }) => {
+  // กำหนดสีโดยใช้ธีมจาก ConfigProvider
   const colors = {
     Unknown: 'rgba(211, 211, 211, 0.6)',
-    Critical: 'rgba(255, 99, 132, 0.7)',
-    High: 'rgba(255, 165, 0, 0.7)',
-    Medium: 'rgba(255, 206, 86, 0.7)',
-    Low: 'rgba(75, 192, 192, 0.7)',
+    Critical: '#ff4d4f',  // สีแดงสำหรับ critical
+    High: '#fa8c16',  // ใช้สีจาก colorPrimary (ตาม theme.json)
+    Medium: '#ffc107',
+    Low: '#52c41a',  // ใช้สีจาก colorSuccess (ตาม theme.json)
   };
 
   const borderColor = {
     Unknown: 'rgba(211, 211, 211, 1)',
-    Critical: 'rgba(255, 99, 132, 1)',
-    High: 'rgba(255, 165, 0, 1)',
-    Medium: 'rgba(255, 206, 86, 1)',
-    Low: 'rgba(75, 192, 192, 1)',
+    Critical: '#ff4d4f',
+    High: '#fa8c16',
+    Medium: '#ffc107',
+    Low: '#52c41a',
   };
 
   const sortedRiskLevels = sortRiskLevels(riskLevels);
@@ -58,8 +59,8 @@ const RiskBarChart = ({ riskLevels, osName, version }) => {
         },
       },
     },
-    maintainAspectRatio: false,  // ปิด responsive aspect ratio เพื่อควบคุมขนาด
-    responsive: false,  // ปิดการตอบสนองต่อการขยายขนาดหน้าจอ
+    maintainAspectRatio: false,
+    responsive: true,  // เปิดการตอบสนองต่อขนาดหน้าจอ
     scales: {
       y: {
         beginAtZero: true,
@@ -71,9 +72,20 @@ const RiskBarChart = ({ riskLevels, osName, version }) => {
   };
 
   return (
-    <div className="chart-box">
-      <Bar data={data} options={options} width={300} height={300} />
-    </div>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.darkAlgorithm,
+        token: {
+          colorPrimary: "#fa8c16",
+          colorInfo: "#fa8c16",
+          colorSuccess: "#52c41a",
+        },
+      }}
+    >
+      <div className="chart-box" style={{ width: '100%', height: '400px' }}>
+        <Bar data={data} options={options} />
+      </div>
+    </ConfigProvider>
   );
 };
 

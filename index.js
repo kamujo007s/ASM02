@@ -1,4 +1,3 @@
-// index.js
 const express = require('express');
 const cron = require('node-cron');
 const helmet = require('helmet');
@@ -22,18 +21,10 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Database connection
 connectDB();
 
-// Static file serving for the React app
-app.use(express.static(path.join(__dirname, 'front-end/build')));
-
 // API Routes
 app.use('/api/assets', assetRoutes); // เส้นทางสำหรับจัดการ assets
 app.use('/cve', cveRoutes); // เส้นทางสำหรับจัดการ CVE
 app.use('/assetList', assetList); // เส้นทางสำหรับจัดการ assets
-
-// Serve the React app
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'front-end/build', 'index.html'));
-});
 
 // Fetch CVE data for all assets when the server starts
 const fetchCveDataOnStart = async () => {
@@ -62,7 +53,7 @@ cron.schedule('0 0 */3 * *', async () => {
 });
 
 // Start the server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT ;
 
 const ifaces = os.networkInterfaces();
 
@@ -79,6 +70,7 @@ Object.keys(ifaces).forEach(function (ifname) {
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`You can access the application at: http://${ipAddress}:${PORT}`);
+  console.log(`local: http://localhost:${PORT}`);
   
   // Fetch initial CVE data
   await fetchCveDataOnStart();

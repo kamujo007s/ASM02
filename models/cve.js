@@ -12,7 +12,7 @@ const cveSchema = new mongoose.Schema({
   weaknesses: Array,
   configurations: Array,
   references: Array
-}, { strict: false });
+});
 
 const Cve = mongoose.model('Cve', cveSchema);
 

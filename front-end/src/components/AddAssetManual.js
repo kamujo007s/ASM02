@@ -1,8 +1,8 @@
-// AddAssetManual.js
 import React, { useState } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { ConfigProvider, theme, Form, Input, Button, Card } from 'antd'; // Import Ant Design components
 
 const AddAssetManual = () => {
   const [asset, setAsset] = useState({
@@ -20,27 +20,25 @@ const AddAssetManual = () => {
     });
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
+  const handleSubmit = async (values) => {
     // แสดง toast ว่ากำลังดำเนินการ
     const id = toast.loading('Adding asset...', {
-      autoClose: false, // ไม่ปิดอัตโนมัติจนกว่าจะเพิ่มเสร็จ
-      toastId: 'addingAsset', // เพื่อให้ toast นี้เป็น unique และสามารถอัพเดตได้
+      autoClose: false,
+      toastId: 'addingAsset',
     });
 
     try {
-      await axios.post('/api/assets', asset);
+      await axios.post('http://192.168.123.133:3012/api/assets', values);
       toast.update(id, {
         render: 'Asset added successfully!',
-        type: toast.TYPE.SUCCESS,
+        type: 'success',
         isLoading: false,
         autoClose: 5000,
       });
       setAsset({ device_name: '', application_name: '', operating_system: '', os_version: '' }); // Reset form
 
       try {
-        await axios.get('/cve/update');
+        await axios.get('http://192.168.123.133:3012/cve/update');
         toast.success('CVE data updated successfully!', { position: "top-right" });
       } catch (updateError) {
         console.error('Error updating CVE data:', updateError);
@@ -49,9 +47,9 @@ const AddAssetManual = () => {
 
     } catch (error) {
       console.error('Error adding asset:', error);
-      toast.update('addingAsset', {
+      toast.update(id, {
         render: 'Error adding asset',
-        type: toast.TYPE.ERROR,
+        type: 'error',
         isLoading: false,
         autoClose: 5000,
       });
@@ -59,67 +57,71 @@ const AddAssetManual = () => {
   };
 
   return (
-    <div className="container mt-5">
-      <ToastContainer /> {/* สำหรับแสดง Toast */}
-      <div className="card">
-        <div className="card-header text-white" style={{ backgroundColor: '#0047BB' }}>
-          Add Asset Manually
-        </div>
-        <div className="card-body">
-          <form onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label htmlFor="device_name">Asset Name</label>
-              <input
-                type="text"
-                className="form-control"
-                id="device_name"
+    <ConfigProvider
+      theme={{
+        algorithm: theme.darkAlgorithm, // กำหนดเป็น Dark Theme
+        token: {
+          colorPrimary: "#fa8c16",  // เปลี่ยนสี primary
+          colorInfo: "#fa8c16",
+          colorSuccess: "#52c41a",
+        },
+      }}
+    >
+      <div className="container mt-5">
+        <ToastContainer /> {/* สำหรับแสดง Toast */}
+        <Card title="Add Asset Manually" style={{ backgroundColor: '#001529', color: '#fff' }}>
+          <Form onFinish={handleSubmit} layout="vertical">
+            <Form.Item
+              label="Asset Name"
+              name="device_name"
+              rules={[{ required: true, message: 'Please input the asset name!' }]}
+            >
+              <Input
                 name="device_name"
                 value={asset.device_name}
                 onChange={handleChange}
-                required
               />
-            </div>
-            <div className="form-group">
-              <label htmlFor="application_name">Application</label>
-              <input
-                type="text"
-                className="form-control"
-                id="application_name"
+            </Form.Item>
+            <Form.Item
+              label="Application"
+              name="application_name"
+              rules={[{ required: true, message: 'Please input the application name!' }]}
+            >
+              <Input
                 name="application_name"
                 value={asset.application_name}
                 onChange={handleChange}
-                required
               />
-            </div>
-            <div className="form-group">
-              <label htmlFor="operating_system">Operating System</label>
-              <input
-                type="text"
-                className="form-control"
-                id="operating_system"
+            </Form.Item>
+            <Form.Item
+              label="Operating System"
+              name="operating_system"
+              rules={[{ required: true, message: 'Please input the operating system!' }]}
+            >
+              <Input
                 name="operating_system"
                 value={asset.operating_system}
                 onChange={handleChange}
-                required
               />
-            </div>
-            <div className="form-group">
-              <label htmlFor="os_version">Version</label>
-              <input
-                type="text"
-                className="form-control"
-                id="os_version"
+            </Form.Item>
+            <Form.Item
+              label="Version"
+              name="os_version"
+              rules={[{ required: true, message: 'Please input the OS version!' }]}
+            >
+              <Input
                 name="os_version"
                 value={asset.os_version}
                 onChange={handleChange}
-                required
               />
-            </div>
-            <button type="submit" className="btn btn-primary mt-2">Add Asset</button>
-          </form>
-        </div>
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" htmlType="submit">Add Asset</Button>
+            </Form.Item>
+          </Form>
+        </Card>
       </div>
-    </div>
+    </ConfigProvider>
   );
 };
 

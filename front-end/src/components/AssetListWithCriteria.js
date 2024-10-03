@@ -9,7 +9,7 @@ const AssetListWithCriteria = () => {
     // ดึงข้อมูลจาก API
     const fetchAssets = async () => {
       try {
-        const response = await axios.get('/assetList/assets-with-status');
+        const response = await axios.get('http://192.168.123.133:3012/assetList/assets-with-status');
         setAssets(response.data); // เก็บข้อมูล asset ที่ดึงมาใน state
       } catch (error) {
         console.error('Error fetching assets:', error);

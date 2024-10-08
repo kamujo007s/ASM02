@@ -1,41 +1,52 @@
-import React from 'react';
-import { Bar } from 'react-chartjs-2';
-import { Chart as ChartJS, BarElement, Tooltip, Legend, CategoryScale, LinearScale } from 'chart.js';
-import { ConfigProvider, theme } from 'antd';
+import React from "react";
+import { Bar } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  BarElement,
+  Tooltip,
+  Legend,
+  CategoryScale,
+  LinearScale,
+} from "chart.js";
+import { ConfigProvider, theme } from "antd";
 
 ChartJS.register(BarElement, Tooltip, Legend, CategoryScale, LinearScale);
 
 const RiskBarChart = ({ riskLevels, osName, version }) => {
   // กำหนดสีโดยใช้ธีมจาก ConfigProvider
   const colors = {
-    Unknown: 'rgba(211, 211, 211, 0.6)',
-    Critical: '#ff4d4f',  // สีแดงสำหรับ critical
-    High: '#fa8c16',  // ใช้สีจาก colorPrimary (ตาม theme.json)
-    Medium: '#ffc107',
-    Low: '#52c41a',  // ใช้สีจาก colorSuccess (ตาม theme.json)
+    Unknown: "rgba(211, 211, 211, 0.6)",
+    Critical: "#ff4d4f", // สีแดงสำหรับ critical
+    High: "#fa8c16", // ใช้สีจาก colorPrimary (ตาม theme.json)
+    Medium: "#ffc107",
+    Low: "#52c41a", // ใช้สีจาก colorSuccess (ตาม theme.json)
   };
 
   const borderColor = {
-    Unknown: 'rgba(211, 211, 211, 1)',
-    Critical: '#ff4d4f',
-    High: '#fa8c16',
-    Medium: '#ffc107',
-    Low: '#52c41a',
+    Unknown: "rgba(211, 211, 211, 1)",
+    Critical: "#ff4d4f",
+    High: "#fa8c16",
+    Medium: "#ffc107",
+    Low: "#52c41a",
   };
 
   const sortedRiskLevels = sortRiskLevels(riskLevels);
-  const labels = sortedRiskLevels.map(risk => risk.riskLevel);
-  const dataValues = sortedRiskLevels.map(risk => risk.count);
+  const labels = sortedRiskLevels.map((risk) => risk.riskLevel);
+  const dataValues = sortedRiskLevels.map((risk) => risk.count);
   const totalCount = dataValues.reduce((a, b) => a + b, 0);
 
-  const backgroundColors = sortedRiskLevels.map(risk => colors[risk.riskLevel] || 'rgba(211, 211, 211, 0.6)');
-  const borderColors = sortedRiskLevels.map(risk => borderColor[risk.riskLevel] || 'rgba(211, 211, 211, 1)');
+  const backgroundColors = sortedRiskLevels.map(
+    (risk) => colors[risk.riskLevel] || "rgba(211, 211, 211, 0.6)"
+  );
+  const borderColors = sortedRiskLevels.map(
+    (risk) => borderColor[risk.riskLevel] || "rgba(211, 211, 211, 1)"
+  );
 
   const data = {
     labels: labels,
     datasets: [
       {
-        label: 'Vulnerabilities',
+        label: "Vulnerabilities",
         data: dataValues,
         backgroundColor: backgroundColors,
         borderColor: borderColors,
@@ -60,7 +71,7 @@ const RiskBarChart = ({ riskLevels, osName, version }) => {
       },
     },
     maintainAspectRatio: false,
-    responsive: true,  // เปิดการตอบสนองต่อขนาดหน้าจอ
+    responsive: true, // เปิดการตอบสนองต่อขนาดหน้าจอ
     scales: {
       y: {
         beginAtZero: true,
@@ -74,15 +85,16 @@ const RiskBarChart = ({ riskLevels, osName, version }) => {
   return (
     <ConfigProvider
       theme={{
-        algorithm: theme.darkAlgorithm,
+        algorithm: theme.defaultAlgorithm, // Use default (light) theme
         token: {
-          colorPrimary: "#fa8c16",
-          colorInfo: "#fa8c16",
-          colorSuccess: "#52c41a",
+          colorPrimary: "#1890ff", // สีหลักตามธีมที่คุณเลือก
+          borderRadius: 2, // ปรับ border-radius เป็น 2px
+          colorBgContainer: "#ffffff", // พื้นหลังสีขาว
+          colorTextBase: "#1f1f1f", // สีข้อความเป็นสีดำ
         },
       }}
     >
-      <div className="chart-box" style={{ width: '100%', height: '400px' }}>
+      <div className="chart-box" style={{ width: "100%", height: "300px" }}>
         <Bar data={data} options={options} />
       </div>
     </ConfigProvider>
@@ -90,8 +102,10 @@ const RiskBarChart = ({ riskLevels, osName, version }) => {
 };
 
 const sortRiskLevels = (riskLevels) => {
-  const riskOrder = ['Critical', 'High', 'Medium', 'Low', 'Unknown'];
-  return riskLevels.sort((a, b) => riskOrder.indexOf(a.riskLevel) - riskOrder.indexOf(b.riskLevel));
+  const riskOrder = ["Critical", "High", "Medium", "Low", "Unknown"];
+  return riskLevels.sort(
+    (a, b) => riskOrder.indexOf(a.riskLevel) - riskOrder.indexOf(b.riskLevel)
+  );
 };
 
 export default RiskBarChart;

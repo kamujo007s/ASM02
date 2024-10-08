@@ -15,14 +15,14 @@
 }
 
 .App-header {
-  background-color: #1f1f1f; /* ปรับพื้นหลังให้เข้ากับ Dark Theme */
+  background-color: #fff; /* ปรับพื้นหลังให้เข้ากับ Dark Theme */
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   font-size: calc(10px + 2vmin);
-  color: #fff; /* ใช้สีขาวสำหรับข้อความ */
+  color:  #1f1f1f; /* ใช้สีขาวสำหรับข้อความ */
 }
 
 .App-link {
@@ -54,6 +54,6 @@
   justify-content: space-between;
   border: 1px solid #444;  /* เพิ่มกรอบให้กราฟด้วยสีเข้ม */
   padding: 10px;  /* เพิ่มพื้นที่ภายในกรอบ */
-  background-color: #2c2c2c;  /* พื้นหลังที่เข้ากับ Dark Theme */
-  color: #fff;  /* ปรับสีข้อความ */
+  /* background-color: #2c2c2c;  /* พื้นหลังที่เข้ากับ Dark Theme */
+  /* color: #fff;  ปรับสีข้อความ */ 
 }

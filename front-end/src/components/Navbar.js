@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Menu, ConfigProvider, theme } from 'antd';
+import { Menu, ConfigProvider,} from 'antd';
 import {
   HomeOutlined,
   UploadOutlined,
@@ -12,36 +12,38 @@ import {
 const Navbar = () => {
   return (
     <ConfigProvider
-    theme={{
-      algorithm: theme.darkAlgorithm,
-      token: {
-        colorPrimary: "#f5222d",
-        colorInfo: "#a970f9",
-        colorSuccess: "#a970f9"
-      },
-    }}
-  >
+      theme={{
+        token: {
+          colorPrimary: "#1677ff",
+          colorInfo: "#1677ff",
+          colorTextBase: "#ffffff", // เปลี่ยนเป็นสีขาวให้เข้ากับธีมมืด
+          colorBgBase: "#1f1f1f",   // เปลี่ยนพื้นหลังเป็นสีเข้ม
+          borderRadius: 6,
+          wireframe: false,
+        },
+      }}
+    >
       <Menu
         mode="horizontal"
         theme="dark"
-        style={{ backgroundColor: '#8025ffe6' }}
+        style={{ backgroundColor: '#2e2e2e' }} // ปรับพื้นหลังของเมนูให้เข้ากับธีมมืด
         selectable={false}
       >
         <Menu.Item key="home" icon={<HomeOutlined />}>
-          <Link to="/">Home</Link>
+          <Link to="/" style={{ color: '#ffffff' }}>Home</Link> {/* ใช้สีขาวสำหรับข้อความ */}
         </Menu.Item>
-        <Menu.Item key="upload" icon={<UploadOutlined />}>
-          <Link to="/upload">Upload Asset</Link>
+        {/* <Menu.Item key="upload" icon={<UploadOutlined />}>
+          <Link to="/upload" style={{ color: '#ffffff' }}>Upload Asset</Link>
         </Menu.Item>
         <Menu.Item key="add-manual" icon={<PlusOutlined />}>
-          <Link to="/add-manual">Add Asset Manually</Link>
+          <Link to="/add-manual" style={{ color: '#ffffff' }}>Add Asset Manually</Link>
+        </Menu.Item> */}
+        <Menu.Item key="manage-assets" icon={<DatabaseOutlined />}>
+          <Link to="/manage-assets" style={{ color: '#ffffff' }}>Manage Assets</Link>
         </Menu.Item>
         <Menu.Item key="dashboard" icon={<DashboardOutlined />}>
-          <Link to="/risk-dashboard">Dashboard</Link>
+          <Link to="/risk-dashboard" style={{ color: '#ffffff' }}>Dashboard</Link>
         </Menu.Item>
-        {/* <Menu.Item key="assets" icon={<DatabaseOutlined />}>
-          <Link to="/assets">Assets</Link>
-        </Menu.Item> */}
       </Menu>
     </ConfigProvider>
   );

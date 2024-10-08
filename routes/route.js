@@ -10,6 +10,11 @@ const e = require("express");
 
 const axiosInstance = axios.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+  headers: {
+    'Accept': 'application/json, text/plain, */*',
+    'User-Agent': 'axios/1.7.3',
+    'Accept-Encoding': 'gzip, compress, deflate, br'
+  }
 });
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

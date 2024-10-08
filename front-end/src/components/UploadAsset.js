@@ -45,7 +45,7 @@ const UploadAsset = () => {
       });
 
       try {
-        const updateResponse = await axios.get('http://192.168.123.133:3012/cve/update'); // Fetch and map data after file upload
+        const updateResponse = await axios.get('http://192.168.123.180:3012/cve/update'); // Fetch and map data after file upload
         console.log('CVE update response:', updateResponse);
         toast.success('Data updated successfully', { position: "top-right" });
       } catch (updateError) {
@@ -85,18 +85,19 @@ const UploadAsset = () => {
 
   return (
     <ConfigProvider
-    theme={{
-      algorithm: theme.darkAlgorithm,
-      token: {
-        colorPrimary: "#f5222d",
-        colorInfo: "#a970f9",
-        colorSuccess: "#a970f9"
-      },
-    }}
-  >
+      theme={{
+        algorithm: theme.defaultAlgorithm, // Use default (light) theme
+        token: {
+          colorPrimary: "#1677ff",
+          colorInfo: "#1677ff",
+          borderRadius: 6,
+          wireframe: false,
+        },
+      }}
+    >
       <div className="container mt-5">
         <ToastContainer /> {/* สำหรับแสดง Toast */}
-        <Card title="Upload Asset" style={{ backgroundColor: '#1f1f1f', color: '#fff' }}> {/* ใช้สีสำหรับ Dark Theme */}
+        <Card title="Upload Asset" style={{ backgroundColor: '#fff', color: '#1f1f1f' }}>
           <Upload 
             beforeUpload={() => true} // Disable automatic upload
             onChange={handleFileChange}

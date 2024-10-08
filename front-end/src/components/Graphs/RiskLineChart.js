@@ -1,6 +1,7 @@
 import React from 'react';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, Tooltip, Legend, CategoryScale, LinearScale, LineElement, PointElement } from 'chart.js';
+import { ConfigProvider, theme } from 'antd';
 
 ChartJS.register(Tooltip, Legend, CategoryScale, LinearScale, LineElement, PointElement);
 
@@ -65,9 +66,21 @@ const RiskLineChart = ({ assetsDataOverTime }) => {
   };
 
   return (
-    <div style={{ width: '100%', height: '400px', marginTop: '20px' }}>
-      <Line data={data} options={options} />
-    </div>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.defaultAlgorithm, // Use default (light) theme
+        token: {
+          colorPrimary: "#1890ff", // สีหลักตามธีมที่คุณเลือก
+          borderRadius: 2, // ปรับ border-radius เป็น 2px
+          colorBgContainer: "#ffffff", // พื้นหลังสีขาว
+          colorTextBase: "#1f1f1f", // สีข้อความเป็นสีดำ
+        },
+      }}
+    >
+      <div style={{ width: '100%', height: '400px', marginTop: '20px' }}>
+        <Line data={data} options={options} />
+      </div>
+    </ConfigProvider>
   );
 };
 

@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { ConfigProvider, theme, Form, Input, Button, Card } from 'antd'; // Import Ant Design components
+import { ConfigProvider, theme, Form, Input, Button, Card, Upload } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
 
-const AddAssetManual = () => {
+const ManageAssets = () => {
   const [asset, setAsset] = useState({
     device_name: '',
     application_name: '',
     operating_system: '',
     os_version: '',
   });
+
+  const [file, setFile] = useState(null);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -20,25 +23,28 @@ const AddAssetManual = () => {
     });
   };
 
+  const handleFileChange = ({ file }) => {
+    setFile(file.originFileObj);
+  };
+
   const handleSubmit = async (values) => {
-    // แสดง toast ว่ากำลังดำเนินการ
     const id = toast.loading('Adding asset...', {
       autoClose: false,
       toastId: 'addingAsset',
     });
 
     try {
-      await axios.post('http://192.168.123.133:3012/api/assets', values);
+      await axios.post('http://192.168.123.180:3012/api/assets', values);
       toast.update(id, {
         render: 'Asset added successfully!',
         type: 'success',
         isLoading: false,
         autoClose: 5000,
       });
-      setAsset({ device_name: '', application_name: '', operating_system: '', os_version: '' }); // Reset form
+      setAsset({ device_name: '', application_name: '', operating_system: '', os_version: '' });
 
       try {
-        await axios.get('http://192.168.123.133:3012/cve/update');
+        await axios.get('http://192.168.123.180:3012/cve/update');
         toast.success('CVE data updated successfully!', { position: "top-right" });
       } catch (updateError) {
         console.error('Error updating CVE data:', updateError);
@@ -56,6 +62,75 @@ const AddAssetManual = () => {
     }
   };
 
+  const handleUpload = async () => {
+    if (!file) {
+      toast.error('Please select a file to upload', { position: "top-right" });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setFile(null);
+
+    const id = toast.loading('Uploading file...', { position: "top-right" });
+
+    try {
+      const response = await axios.post('http://192.168.123.180:3012/api/assets/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('Upload response:', response);
+
+      toast.update(id, {
+        render: 'File uploaded successfully',
+        type: 'success',
+        isLoading: false,
+        autoClose: 3000,
+        position: "top-right",
+      });
+
+      try {
+        const updateResponse = await axios.get('http://192.168.123.180:3012/cve/update');
+        console.log('CVE update response:', updateResponse);
+        toast.success('Data updated successfully', { position: "top-right" });
+      } catch (updateError) {
+        console.error('Error updating CVE data:', updateError);
+        toast.error('Failed to update CVE data after upload', { position: "top-right" });
+      }
+
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      if (error.response) {
+        toast.update(id, {
+          render: error.response.data || 'Error uploading file',
+          type: 'error',
+          isLoading: false,
+          autoClose: 3000,
+          position: "top-right",
+        });
+      } else if (error.message === 'Network Error') {
+        toast.update(id, {
+          render: 'Network error, please check your connection',
+          type: 'error',
+          isLoading: false,
+          autoClose: 3000,
+          position: "top-right",
+        });
+      } else {
+        toast.update(id, {
+          render: 'Failed to upload file due to a server error',
+          type: 'error',
+          isLoading: false,
+          autoClose: 3000,
+          position: "top-right",
+        });
+      }
+    }
+  };
+
   return (
     <ConfigProvider
       theme={{
@@ -68,9 +143,11 @@ const AddAssetManual = () => {
         },
       }}
     >
-      <div className="container mt-5">
+      <div className="container mt-5" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <ToastContainer /> {/* สำหรับแสดง Toast */}
-        <Card title="Add Asset Manually" style={{ backgroundColor: '#ffffff', color: '#1f1f1f' }}>
+        
+        {/* Add Asset Manually */}
+        <Card title="Add Asset Manually" style={{ backgroundColor: '#ffffff', color: '#1f1f1f', marginBottom: '20px', width: '100%', maxWidth: '600px' }}>
           <Form onFinish={handleSubmit} layout="vertical">
             <Form.Item
               label="Asset Name"
@@ -120,10 +197,30 @@ const AddAssetManual = () => {
               <Button type="primary" htmlType="submit">Add Asset</Button>
             </Form.Item>
           </Form>
+
+          {/* Or Section */}
+          <h3 style={{ textAlign: 'center', margin: '20px 0' }}>or Upload file</h3>
+
+          {/* Upload Asset */}
+          <Upload 
+            beforeUpload={() => true} // Disable automatic upload
+            onChange={handleFileChange}
+            maxCount={1} // Allow only one file at a time
+          >
+            <Button icon={<UploadOutlined />}>Select File</Button>
+          </Upload>
+          <Button 
+            type="primary" 
+            onClick={handleUpload} 
+            disabled={!file} 
+            style={{ marginTop: '20px' }}
+          >
+            Upload
+          </Button>
         </Card>
       </div>
     </ConfigProvider>
   );
 };
 
-export default AddAssetManual;
+export default ManageAssets;

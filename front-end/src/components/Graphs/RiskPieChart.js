@@ -1,6 +1,7 @@
 import React from 'react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
+import { ConfigProvider, theme } from 'antd';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale);
 
@@ -60,9 +61,21 @@ const RiskPieChart = ({ riskLevels }) => {
   };
 
   return (
-    <div className="chart-box" style={{ width: '100%', height: '300px', marginTop: '20px' }}>
-      <Pie data={data} options={options} />
-    </div>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.defaultAlgorithm, // Use default (light) theme
+        token: {
+          colorPrimary: "#1890ff", // สีหลักตามธีมที่คุณเลือก
+          borderRadius: 2, // ปรับ border-radius เป็น 2px
+          colorBgContainer: "#ffffff", // พื้นหลังสีขาว
+          colorTextBase: "#1f1f1f", // สีข้อความเป็นสีดำ
+        },
+      }}
+    >
+      <div className="chart-box" style={{ width: '100%', height: '300px', marginTop: '20px' }}>
+        <Pie data={data} options={options} />
+      </div>
+    </ConfigProvider>
   );
 };
 

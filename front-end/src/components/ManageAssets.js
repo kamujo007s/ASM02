@@ -34,7 +34,7 @@ const ManageAssets = () => {
     });
 
     try {
-      await axios.post('http://192.168.123.180:3012/api/assets', values, {
+      await axios.post('http://192.168.1.164:3012/api/assets', values, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
         },
@@ -48,7 +48,7 @@ const ManageAssets = () => {
       setAsset({ device_name: '', application_name: '', operating_system: '', os_version: '' });
 
       try {
-        await axios.get('http://192.168.123.180:3012/cve/update', {
+        await axios.get('http://192.168.1.164:3012/cve/update', {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
           },
@@ -84,7 +84,7 @@ const ManageAssets = () => {
     const id = toast.loading('Uploading file...', { position: "top-right" });
 
     try {
-      const response = await axios.post('http://192.168.123.180:3012/api/assets/upload', formData, {
+      const response = await axios.post('http://192.168.1.164:3012/api/assets/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
@@ -102,7 +102,7 @@ const ManageAssets = () => {
       });
 
       try {
-        const updateResponse = await axios.get('http://192.168.123.180:3012/cve/update', {
+        const updateResponse = await axios.get('http://192.168.1.164:3012/cve/update', {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
           },

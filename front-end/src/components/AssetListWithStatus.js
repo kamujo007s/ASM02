@@ -23,7 +23,7 @@ const AssetListWithStatus = () => {
 
   const fetchCveMatches = async (operating_system, os_version) => {
     try {
-      const response = await axios.get('http://192.168.123.133:3012/cve-matches', { params: { operating_system, os_version } });
+      const response = await axios.get('http://192.168.1.164:3012/cve-matches', { params: { operating_system, os_version } });
       setCveMatches(response.data); // เก็บข้อมูล CVE ที่ดึงมา
     } catch (error) {
       console.error('Error fetching CVE matches:', error);

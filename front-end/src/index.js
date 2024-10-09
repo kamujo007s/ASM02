@@ -1,7 +1,6 @@
-// index.js
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';  // ใช้สไตล์ใหม่จาก index.css ที่ปรับปรุงแล้ว
+import './index.css';
 import App from './App';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -14,7 +13,7 @@ root.render(
       position="top-right"
       autoClose={5000}
       hideProgressBar={false}
-      theme="dark"  // กำหนดธีมมืดสำหรับ ToastContainer
+      theme="dark"
     />
   </React.StrictMode>
 );

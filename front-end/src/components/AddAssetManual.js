@@ -28,7 +28,7 @@ const AddAssetManual = () => {
     });
 
     try {
-      await axios.post('http://192.168.123.133:3012/api/assets', values);
+      await axios.post('http://192.168.1.164:3012/api/assets', values);
       toast.update(id, {
         render: 'Asset added successfully!',
         type: 'success',

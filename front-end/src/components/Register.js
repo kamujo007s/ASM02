@@ -13,7 +13,7 @@ const Register = () => {
   const handleSubmit = async (values) => {
     setLoading(true);
     try {
-      await axios.post('http://192.168.123.180:3012/api/auth/register', values);
+      await axios.post('http://192.168.1.164:3012/api/auth/register', values);
       message.success('Registration successful');
       navigate('/login');
     } catch (error) {

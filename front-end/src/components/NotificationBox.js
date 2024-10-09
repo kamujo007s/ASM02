@@ -12,7 +12,7 @@ const NotificationBox = () => {
       title="Notifications"
       placement="right"
       onClose={toggleVisibility}
-      open={visible} // เปลี่ยนจาก visible เป็น open
+      open={visible}
     >
       <List
         dataSource={notifications}

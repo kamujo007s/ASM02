@@ -1,4 +1,3 @@
-// models/cve.js
 const mongoose = require('mongoose');
 
 const cveSchema = new mongoose.Schema({
@@ -12,7 +11,7 @@ const cveSchema = new mongoose.Schema({
   weaknesses: Array,
   configurations: Array,
   references: Array
-});
+}, { strict: true }); // เพิ่ม strict: true
 
 const Cve = mongoose.model('Cve', cveSchema);
 

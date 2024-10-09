@@ -31,6 +31,7 @@ const UploadAsset = () => {
       const response = await axios.post('http://localhost:3012/api/assets/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
         },
       });
 
@@ -45,7 +46,11 @@ const UploadAsset = () => {
       });
 
       try {
-        const updateResponse = await axios.get('http://192.168.123.180:3012/cve/update'); // Fetch and map data after file upload
+        const updateResponse = await axios.get('http://192.168.123.180:3012/cve/update', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
+          },
+        }); // Fetch and map data after file upload
         console.log('CVE update response:', updateResponse);
         toast.success('Data updated successfully', { position: "top-right" });
       } catch (updateError) {

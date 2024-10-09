@@ -1,30 +1,40 @@
 const express = require('express');
 const cron = require('node-cron');
 const helmet = require('helmet');
-const cors = require('cors'); // เพิ่มการนำเข้า CORS
+const cors = require('cors');
 const path = require('path');
 const os = require('os');
+const http = require('http');
+const WebSocket = require('ws');
 const app = express();
 const connectDB = require('./db/connection');
 const Asset = require('./models/asset');
 const assetRoutes = require('./routes/asset');
+const authRoutes = require('./routes/auth');
 const bodyParser = require('body-parser');
+const morgan = require('morgan');
 
 const assetList = require('./routes/assetList');
-const { router: cveRoutes, fetchDataFromApi } = require('./routes/route');
+const { router: cveRoutes, fetchDataFromApi, setWebSocketServer } = require('./routes/route');
 
 app.use(helmet());
-app.use(cors()); // ใช้ CORS เพื่ออนุญาตคำขอจาก Frontend
+app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(morgan('combined'));
 
 // Database connection
 connectDB();
 
 // API Routes
-app.use('/api/assets', assetRoutes); // เส้นทางสำหรับจัดการ assets
-app.use('/cve', cveRoutes); // เส้นทางสำหรับจัดการ CVE
-app.use('/assetList', assetList); // เส้นทางสำหรับจัดการ assets
+app.use('/api/assets', assetRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/cve', cveRoutes);
+app.use('/assetList', assetList);
+
+// Create HTTP server and WebSocket server
+const server = http.createServer(app);
+setWebSocketServer(server); // ตั้งค่า WebSocket server
 
 // Fetch CVE data for all assets when the server starts
 const fetchCveDataOnStart = async () => {
@@ -53,11 +63,11 @@ cron.schedule('0 0 */3 * *', async () => {
 });
 
 // Start the server
-const PORT = process.env.PORT ;
+const PORT = process.env.PORT || 3012;
 
 const ifaces = os.networkInterfaces();
 
-let ipAddress = '127.0.0.1'; // ใช้ localhost ถ้าหา IP Address ไม่เจอ
+let ipAddress = '127.0.0.1';
 
 Object.keys(ifaces).forEach(function (ifname) {
   ifaces[ifname].forEach(function (iface) {
@@ -67,7 +77,7 @@ Object.keys(ifaces).forEach(function (ifname) {
   });
 });
 
-app.listen(PORT, '0.0.0.0', async () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`You can access the application at: http://${ipAddress}:${PORT}`);
   console.log(`local: http://localhost:${PORT}`);

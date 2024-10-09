@@ -3,10 +3,15 @@ const express = require("express");
 const router = express.Router();
 const Cve = require("../models/cve");
 const Asset = require("../models/asset");
-const Vulnerability = require("../models/vulnerability"); // ต้องสร้าง model สำหรับ Vulnerability ด้วย
+const Vulnerability = require("../models/vulnerability");
 const https = require("https");
 const { query, validationResult } = require("express-validator");
-const e = require("express");
+const helmet = require("helmet");
+const WebSocket = require('ws'); // ตรวจสอบการนำเข้า WebSocket
+
+
+const app = express();
+app.use(helmet());
 
 const axiosInstance = axios.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false }),
@@ -70,7 +75,22 @@ const getRiskLevel = (score, version) => {
     if (score >= 7.0 && score <= 10.0) return "High";
     else return "null";
   }
-  return "Unknown"; // กรณีที่ไม่ตรงกับเงื่อนไขด้านบน
+  return "Unknown";
+};
+
+// เพิ่มการตั้งค่า WebSocket
+
+let wss;
+const setWebSocketServer = (server) => {
+  wss = new WebSocket.Server({ server }); // ตรวจสอบการสร้าง WebSocket.Server
+
+  wss.broadcast = function broadcast(data) {
+    wss.clients.forEach(function each(client) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      }
+    });
+  };
 };
 
 const fetchDataFromApi = async (asset) => {
@@ -115,7 +135,6 @@ const fetchDataFromApi = async (asset) => {
         const score = cvss.score;
         const riskLevel = getRiskLevel(score, cvss.version);
 
-        // ตรวจสอบว่า configurations มีข้อมูลที่ต้องการหรือไม่
         const cpeMatches =
           vuln.cve.configurations?.flatMap((config) =>
             config.nodes?.flatMap((node) =>
@@ -137,7 +156,7 @@ const fetchDataFromApi = async (asset) => {
           lastModified: vuln.cve.lastModified,
           vulnStatus: vuln.cve.vulnStatus,
           descriptions: vuln.cve.descriptions,
-          configurations: cpeMatches, // เก็บ configurations ที่สร้างใหม่
+          configurations: cpeMatches,
           riskLevel: riskLevel,
           cvssVersion: cvss.version,
           cvssScore: score,
@@ -148,6 +167,12 @@ const fetchDataFromApi = async (asset) => {
           { $set: vulnerabilityData },
           { upsert: true }
         );
+
+        // ส่งการแจ้งเตือนผ่าน WebSocket
+        if (wss) {
+          const notification = `New CVE found for asset ${asset.device_name}: ${vuln.cve.id}`;
+          wss.broadcast(notification);
+        }
       }
 
       if (i + 10 < vulnerabilities.length) {
@@ -164,7 +189,6 @@ const fetchDataFromApi = async (asset) => {
     return [];
   }
 };
-
 
 const mapAssetsToCves = async () => {
   try {
@@ -214,7 +238,12 @@ const mapAssetsToCves = async () => {
   }
 };
 
-router.get("/update", async (req, res) => {
+const authenticate = (req, res, next) => {
+  // เพิ่ม logic สำหรับการยืนยันตัวตน
+  next();
+};
+
+router.get("/update", authenticate, async (req, res) => {
   try {
     await mapAssetsToCves();
     res.send("Data updated and mapped successfully");
@@ -287,7 +316,7 @@ router.get(
   }
 );
 
-router.get("/assets/os-versions", async (req, res) => {
+router.get("/assets/os-versions", authenticate, async (req, res) => {
   try {
     const uniqueOs = await Asset.distinct("operating_system");
     const versionsByOs = {};
@@ -303,7 +332,7 @@ router.get("/assets/os-versions", async (req, res) => {
   }
 });
 
-router.get('/vulnerability-summary', async (req, res) => {
+router.get('/vulnerability-summary', authenticate, async (req, res) => {
   try {
     const summary = await Vulnerability.aggregate([
       {
@@ -360,16 +389,17 @@ const checkMatchingCve = async (operating_system, os_version) => {
 
   return vulnerabilities.length > 0;
 };
-router.get('/asset-over-time', async (req, res) => {
+
+router.get('/asset-over-time', authenticate, async (req, res) => {
   try {
     const assetOverTime = await Vulnerability.aggregate([
       {
         $group: {
           _id: {
-            year: { $year: "$published" },  // กลุ่มตามปี
-            operating_system: "$operating_system",  // กลุ่มตาม OS
+            year: { $year: "$published" },
+            operating_system: "$operating_system",
           },
-          count: { $sum: 1 },  // นับจำนวน Asset ที่มีช่องโหว่
+          count: { $sum: 1 },
         },
       },
       {
@@ -381,19 +411,19 @@ router.get('/asset-over-time', async (req, res) => {
               count: "$count",
             },
           },
-          totalCount: { $sum: "$count" },  // รวมจำนวนทั้งหมดในแต่ละปี
+          totalCount: { $sum: "$count" },
         },
       },
       {
         $project: {
           _id: 0,
-          year: "$_id",  // กำหนดชื่อฟิลด์เป็นปี
-          osCounts: 1,   // เก็บข้อมูล OS และจำนวนที่เกี่ยวข้อง
-          totalCount: 1, // เก็บข้อมูลจำนวนทั้งหมด
+          year: "$_id",
+          osCounts: 1,
+          totalCount: 1,
         },
       },
       {
-        $sort: { year: 1 },  // จัดเรียงตามปี
+        $sort: { year: 1 },
       },
     ]);
 
@@ -404,7 +434,7 @@ router.get('/asset-over-time', async (req, res) => {
   }
 });
 
-router.get('/assets-with-status', async (req, res) => {
+router.get('/assets-with-status', authenticate, async (req, res) => {
   try {
     const assets = await Asset.find();
 
@@ -426,8 +456,62 @@ router.get('/assets-with-status', async (req, res) => {
   }
 });
 
+// ฟังก์ชัน mockup สำหรับการเพิ่ม CVE ใหม่
+const mockAddCve = async (req, res) => {
+  try {
+    const asset = await Asset.findOne(); // เลือก Asset ที่ต้องการ
+    if (!asset) {
+      return res.status(404).send('No asset found');
+    }
+
+    const newCve = new Cve({
+      id: 'CVE-2019-12347', // เพิ่มการกำหนดค่า id
+      sourceIdentifier: 'Mock Source',
+      published: new Date(),
+      lastModified: new Date(),
+      vulnStatus: 'Analyzed',
+      descriptions: [{ lang: 'en', value: 'Windows Server 2012 SP2 Mock CVE for testing2' }],
+      metrics: {},
+      weaknesses: [],
+      configurations: [],
+      references: []
+    });
+    await newCve.save();
+
+    const vulnerability = new Vulnerability({
+      asset: asset._id,
+      operating_system: asset.operating_system,
+      os_version: asset.os_version,
+      cveId: newCve.id,
+      published: newCve.published,
+      lastModified: newCve.lastModified,
+      vulnStatus: newCve.vulnStatus,
+      descriptions: newCve.descriptions,
+      riskLevel: 'High',
+      cvssVersion: '3.1',
+      cvssScore: 9.8,
+      configurations: []
+    });
+    await vulnerability.save();
+
+    // ส่งการแจ้งเตือนผ่าน WebSocket
+    if (wss) {
+      const notification = `New CVE found for asset ${asset.device_name}: ${newCve.id}`;
+      wss.broadcast(notification);
+    }
+
+    res.status(201).send('Mock CVE added and notification sent');
+  } catch (error) {
+    console.error('Error adding mock CVE:', error);
+    res.status(500).send('Error adding mock CVE');
+  }
+};
+
+router.post('/mock-add-cve', mockAddCve);
+
 module.exports = {
   router,
   fetchDataFromApi,
   mapAssetsToCves,
+  setWebSocketServer,
 };

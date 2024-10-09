@@ -1,4 +1,3 @@
-// asset.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -8,6 +7,14 @@ const path = require('path');
 const Asset = require('../models/asset');
 const { mapAssetsToCves } = require('./route');
 const xlsx = require('xlsx');
+const { body, validationResult } = require('express-validator');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const authenticate = require('../middleware/authenticate'); // Add this line
+
+const app = express();
+app.use(helmet());
+app.use(morgan('combined'));
 
 // Config Multer for file upload
 const storage = multer.diskStorage({
@@ -16,10 +23,10 @@ const storage = multer.diskStorage({
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath);
     }
-    cb(null, uploadPath); // กำหนดตำแหน่งสำหรับเก็บไฟล์
+    cb(null, uploadPath);
   },
   filename: function (req, file, cb) {
-    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname)); // กำหนดชื่อไฟล์
+    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
   }
 });
 
@@ -58,7 +65,7 @@ const processExcel = async (filePath) => {
 
     if (!Device_Name || !Application_Name || !Operating_System || !OS_Version) {
       console.error('Missing required fields in row:', row);
-      return null; // หรือเพิกเฉยแถวนี้
+      return null;
     }
 
     return {
@@ -72,6 +79,8 @@ const processExcel = async (filePath) => {
   return assets;
 };
 
+// Middleware for authentication
+router.use(authenticate); // Add this line
 
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {
@@ -91,7 +100,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     await Asset.insertMany(assets);
-    await mapAssetsToCves(); // Map assets to CVEs after adding assets
+    await mapAssetsToCves();
 
     res.status(200).send('File uploaded and assets added successfully');
   } catch (error) {
@@ -99,22 +108,36 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     res.status(500).send('Server error during file upload');
   } finally {
     if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path); // Remove the file after processing
+      fs.unlinkSync(req.file.path);
     }
   }
 });
 
 // Route to handle manual asset addition
-router.post('/', async (req, res) => {
-  try {
-    const newAsset = new Asset(req.body);
-    await newAsset.save();
-    await mapAssetsToCves(); // Map assets to CVEs after adding the new asset
-    res.status(201).send(newAsset);
-  } catch (error) {
-    console.error('Error adding asset manually:', error);
-    res.status(500).send('Server error during asset addition');
+router.post(
+  '/',
+  [
+    body('device_name').isString().trim().escape(),
+    body('application_name').isString().trim().escape(),
+    body('operating_system').isString().trim().escape(),
+    body('os_version').isString().trim().escape(),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const newAsset = new Asset(req.body);
+      await newAsset.save();
+      await mapAssetsToCves();
+      res.status(201).send(newAsset);
+    } catch (error) {
+      console.error('Error adding asset manually:', error);
+      res.status(500).send('Server error during asset addition');
+    }
   }
-});
+);
 
 module.exports = router;

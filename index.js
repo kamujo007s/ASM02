@@ -5,18 +5,18 @@ const cors = require('cors');
 const path = require('path');
 const os = require('os');
 const http = require('http');
-const WebSocket = require('ws');
+const { Server } = require('socket.io');
 const app = express();
 const connectDB = require('./db/connection');
 const Asset = require('./models/asset');
-const Notification = require('./models/notification'); // เพิ่มการนำเข้า Notification
+const Notification = require('./models/notification');
 const assetRoutes = require('./routes/asset');
 const authRoutes = require('./routes/auth');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
 
 const assetList = require('./routes/assetList');
-const { router: cveRoutes, setWebSocketServer } = require('./routes/route');
+const { router: cveRoutes } = require('./routes/route');
 
 app.use(helmet());
 app.use(cors());
@@ -33,9 +33,20 @@ app.use('/api/auth', authRoutes);
 app.use('/cve', cveRoutes);
 app.use('/assetList', assetList);
 
-// Create HTTP server and WebSocket server
+// Create HTTP server and Socket.io server
 const server = http.createServer(app);
-setWebSocketServer(server); // ตั้งค่า WebSocket server
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+  },
+});
+
+io.on('connection', (socket) => {
+  console.log('New client connected');
+  socket.on('disconnect', () => {
+    console.log('Client disconnected');
+  });
+});
 
 // Schedule the task to run every 3 days at midnight
 cron.schedule('0 0 */3 * *', async () => {

@@ -1,6 +1,6 @@
-import React, { useEffect, useContext } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
-import { ConfigProvider, theme, message } from 'antd';
+import { ConfigProvider, theme } from 'antd';
 import VulnerabilityTable from './components/VulnerabilityTable';
 import Navbar from './components/Navbar'; 
 import VulnerabilityDashboard from './components/VulnerabilityDashboard';
@@ -9,28 +9,16 @@ import ManageAssets from './components/ManageAssets';
 import Login from './components/Login';
 import Register from './components/Register';
 import { AuthProvider } from './context/AuthContext';
-import { NotificationProvider, NotificationContext } from './context/NotificationContext';
+import { NotificationProvider } from './context/NotificationContext';
 import PrivateRoute from './components/PrivateRoute';
 import NotificationBox from './components/NotificationBox';
+import useSocket from './websocket'; // นำเข้า hook
 
 const AppContent = () => {
   const location = useLocation();
   const showNavbar = location.pathname !== '/login' && location.pathname !== '/register';
-  const { addNotification } = useContext(NotificationContext);
 
-  useEffect(() => {
-    const ws = new WebSocket('ws://localhost:3012'); // เปลี่ยน URL ให้ตรงกับ WebSocket server ของคุณ
-
-    ws.onmessage = (event) => {
-      const notification = event.data;
-      addNotification(notification);
-      message.info(notification);
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [addNotification]);
+  useSocket('http://localhost:3012'); // ใช้ hook
 
   return (
     <>

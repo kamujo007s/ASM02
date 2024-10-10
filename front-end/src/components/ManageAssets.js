@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { ConfigProvider, theme, Form, Input, Button, Card, Upload } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
+import { AuthContext } from '../context/AuthContext'; // นำเข้า AuthContext
 
 const ManageAssets = () => {
+  const { auth } = useContext(AuthContext); // ใช้ AuthContext
   const [asset, setAsset] = useState({
     device_name: '',
     application_name: '',
@@ -34,9 +36,9 @@ const ManageAssets = () => {
     });
 
     try {
-      await axios.post('http://192.168.1.164:3012/api/assets', values, {
+      await axios.post('http://192.168.123.180:3012/api/assets', values, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
+          'Authorization': `Bearer ${auth.token}`, // ใช้ token จาก Context
         },
       });
       toast.update(id, {
@@ -48,9 +50,9 @@ const ManageAssets = () => {
       setAsset({ device_name: '', application_name: '', operating_system: '', os_version: '' });
 
       try {
-        await axios.get('http://192.168.1.164:3012/cve/update', {
+        await axios.get('http://192.168.123.180:3012/cve/update', {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
+            'Authorization': `Bearer ${auth.token}`, // ใช้ token จาก Context
           },
         });
         toast.success('CVE data updated successfully!', { position: "top-right" });
@@ -84,10 +86,10 @@ const ManageAssets = () => {
     const id = toast.loading('Uploading file...', { position: "top-right" });
 
     try {
-      const response = await axios.post('http://192.168.1.164:3012/api/assets/upload', formData, {
+      const response = await axios.post('http://192.168.123.180:3012/api/assets/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
+          'Authorization': `Bearer ${auth.token}`, // ใช้ token จาก Context
         },
       });
 
@@ -102,9 +104,9 @@ const ManageAssets = () => {
       });
 
       try {
-        const updateResponse = await axios.get('http://192.168.1.164:3012/cve/update', {
+        const updateResponse = await axios.get('http://192.168.123.180:3012/cve/update', {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
+            'Authorization': `Bearer ${auth.token}`, // ใช้ token จาก Context
           },
         });
         console.log('CVE update response:', updateResponse);

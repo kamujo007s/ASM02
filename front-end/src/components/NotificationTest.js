@@ -22,7 +22,7 @@ const NotificationTest = () => {
 
   const handleMockAddCve = async () => {
     try {
-      await axios.post('http://localhost:3012/cve/mock-add-cve');
+      await axios.post('http://100.64.217.238:3012/cve/mock-add-cve');
       message.success('Mock CVE added');
     } catch (error) {
       message.error('Error adding mock CVE');

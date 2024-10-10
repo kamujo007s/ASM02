@@ -6,7 +6,6 @@ import VulnerabilityTable from './components/VulnerabilityTable';
 // import AddAssetManual from './components/AddAssetManual';
 import Navbar from './components/Navbar'; 
 import VulnerabilityDashboard from './components/VulnerabilityDashboard';
-import AssetListWithStatus from './components/AssetListWithStatus';
 import ManageAssets from './components/ManageAssets';
 import Login from './components/Login'; // เพิ่มการนำเข้า Login
 import Register from './components/Register'; // เพิ่มการนำเข้า Register
@@ -14,7 +13,6 @@ import { AuthProvider } from './context/AuthContext'; // เพิ่มกา�
 import { NotificationProvider } from './context/NotificationContext'; // เพิ่มการนำเข้า NotificationProvider
 import PrivateRoute from './components/PrivateRoute'; // เพิ่มการนำเข้า PrivateRoute
 import NotificationBox from './components/NotificationBox'; // เพิ่มการนำเข้า NotificationBox
-import NotificationTest from './components/NotificationTest'; // เพิ่มการนำเข้า NotificationTest
 
 const AppContent = () => {
   const location = useLocation();
@@ -28,14 +26,12 @@ const AppContent = () => {
         <Routes>
           <Route path="/login" element={<Login />} /> {/* Route สำหรับหน้า Login */}
           <Route path="/register" element={<Register />} /> {/* Route สำหรับหน้า Register */}
-          <Route path="/notification-test" element={<NotificationTest />} /> {/* Route สำหรับหน้า NotificationTest */}
           <Route element={<PrivateRoute />}>
             <Route path="/" element={<VulnerabilityTable />} />
             <Route path="/vulnerabilities" element={<VulnerabilityTable />} /> {/* Route สำหรับ VulnerabilityTable */}
             {/* <Route path="/upload" element={<UploadAsset />} /> {/* Route สำหรับอัปโหลดไฟล์ */}
             {/* <Route path="/add-manual" element={<AddAssetManual />} /> Route สำหรับการเพิ่มแบบแมนนวล */}
             <Route path="/risk-dashboard" element={<VulnerabilityDashboard />} /> {/* Route สำหรับ Dashboard ของความเสี่ยง */}
-            <Route path="/assets" element={<AssetListWithStatus />} /> {/* Route สำหรับแสดงรายการของ Asset */}
             <Route path="/manage-assets" element={<ManageAssets />} /> {/* Route สำหรับการจัดการ Asset */}
           </Route>
         </Routes>

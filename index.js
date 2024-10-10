@@ -1,3 +1,4 @@
+// index.js
 const express = require('express');
 const cron = require('node-cron');
 const helmet = require('helmet');
@@ -9,13 +10,15 @@ const WebSocket = require('ws');
 const app = express();
 const connectDB = require('./db/connection');
 const Asset = require('./models/asset');
+const Notification = require('./models/notification'); // เพิ่มการนำเข้า Notification
 const assetRoutes = require('./routes/asset');
 const authRoutes = require('./routes/auth');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
+const authenticateMiddleware = require('./middleware/authenticate'); // เพิ่มการนำเข้า authenticateMiddleware
 
 const assetList = require('./routes/assetList');
-const { router: cveRoutes, fetchDataFromApi, setWebSocketServer } = require('./routes/route');
+const { router: cveRoutes, fetchDataFromApi, setWebSocketServer, mapAssetsToCves } = require('./routes/route');
 
 app.use(helmet());
 app.use(cors());
@@ -27,14 +30,32 @@ app.use(morgan('combined'));
 connectDB();
 
 // API Routes
-app.use('/api/assets', assetRoutes);
+app.use('/api/assets', authenticateMiddleware, assetRoutes); // ใช้ middleware ก่อนเข้าถึง assetRoutes
 app.use('/api/auth', authRoutes);
-app.use('/cve', cveRoutes);
-app.use('/assetList', assetList);
+app.use('/cve', authenticateMiddleware, cveRoutes); // ใช้ middleware ก่อนเข้าถึง cveRoutes
+app.use('/assetList', authenticateMiddleware, assetList); // ใช้ middleware ก่อนเข้าถึง assetList
 
 // Create HTTP server and WebSocket server
 const server = http.createServer(app);
-setWebSocketServer(server); // ตั้งค่า WebSocket server
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', (ws) => {
+  console.log('New client connected');
+  ws.on('close', () => {
+    console.log('Client disconnected');
+  });
+});
+
+wss.broadcast = function broadcast(data) {
+  wss.clients.forEach(function each(client) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+  });
+};
+
+// ตั้งค่า WebSocket server
+setWebSocketServer(server);
 
 // Fetch CVE data for all assets when the server starts
 const fetchCveDataOnStart = async () => {
@@ -59,6 +80,26 @@ cron.schedule('0 0 */3 * *', async () => {
     console.log('CVE data updated successfully for all assets');
   } catch (error) {
     console.error('Error updating CVE data:', error);
+  }
+});
+
+// Schedule the task to run every day at midnight to remove old notifications
+cron.schedule('0 0 * * *', async () => {
+  try {
+    await Notification.deleteMany({ createdAt: { $lt: new Date(Date.now() - 6 * 30 * 24 * 60 * 60 * 1000) } });
+    console.log('Old notifications removed successfully');
+  } catch (error) {
+    console.error('Error removing old notifications:', error);
+  }
+});
+
+// Schedule the task to map assets to CVEs every day at midnight
+cron.schedule('0 0 * * *', async () => {
+  try {
+    await mapAssetsToCves();
+    console.log('Assets mapped to CVEs successfully');
+  } catch (error) {
+    console.error('Error mapping assets to CVEs:', error);
   }
 });
 

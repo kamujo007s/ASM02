@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { ConfigProvider, theme, Form, Input, Button, Card, Upload } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
+import { NotificationContext } from '../context/NotificationContext'; // นำเข้า NotificationContext
 
 const ManageAssets = () => {
   const [asset, setAsset] = useState({
@@ -14,6 +15,7 @@ const ManageAssets = () => {
   });
 
   const [file, setFile] = useState(null);
+  const { addNotification } = useContext(NotificationContext); // ใช้ useContext เพื่อเข้าถึง addNotification
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -34,10 +36,12 @@ const ManageAssets = () => {
     });
 
     try {
+      const token = localStorage.getItem('token'); // หรือ sessionStorage.getItem('token')
+
       await axios.post('http://192.168.123.180:3012/api/assets', values, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
-        },
+          Authorization: `Bearer ${token}` // เพิ่ม token ใน headers
+        }
       });
       toast.update(id, {
         render: 'Asset added successfully!',
@@ -47,16 +51,20 @@ const ManageAssets = () => {
       });
       setAsset({ device_name: '', application_name: '', operating_system: '', os_version: '' });
 
+      // เพิ่มการแจ้งเตือน
+      addNotification(`Asset ${values.device_name} added successfully`);
+
+      // Fetch CVE data for the newly added asset only
       try {
-        await axios.get('http://192.168.123.180:3012/cve/update', {
+        await axios.get(`http://192.168.123.180:3012/cve/update?device_name=${values.device_name}`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
-          },
+            Authorization: `Bearer ${token}` // เพิ่ม token ใน headers
+          }
         });
-        toast.success('CVE data updated successfully!', { position: "top-right" });
+        toast.success('CVE data updated successfully for the new asset!', { position: "top-right" });
       } catch (updateError) {
-        console.error('Error updating CVE data:', updateError);
-        toast.error('Failed to update CVE data after adding asset', { position: "top-right" });
+        console.error('Error updating CVE data for the new asset:', updateError);
+        toast.error('Failed to update CVE data for the new asset', { position: "top-right" });
       }
 
     } catch (error) {
@@ -84,11 +92,13 @@ const ManageAssets = () => {
     const id = toast.loading('Uploading file...', { position: "top-right" });
 
     try {
+      const token = localStorage.getItem('token'); // หรือ sessionStorage.getItem('token')
+
       const response = await axios.post('http://192.168.123.180:3012/api/assets/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
-        },
+          Authorization: `Bearer ${token}` // เพิ่ม token ใน headers
+        }
       });
 
       console.log('Upload response:', response);
@@ -101,17 +111,21 @@ const ManageAssets = () => {
         position: "top-right",
       });
 
+      // เพิ่มการแจ้งเตือน
+      addNotification('File uploaded successfully');
+
+      // Fetch CVE data for the newly uploaded assets only
       try {
         const updateResponse = await axios.get('http://192.168.123.180:3012/cve/update', {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`, // เพิ่มการยืนยันตัวตน
-          },
+            Authorization: `Bearer ${token}` // เพิ่ม token ใน headers
+          }
         });
         console.log('CVE update response:', updateResponse);
-        toast.success('Data updated successfully', { position: "top-right" });
+        toast.success('Data updated successfully for the new assets', { position: "top-right" });
       } catch (updateError) {
-        console.error('Error updating CVE data:', updateError);
-        toast.error('Failed to update CVE data after upload', { position: "top-right" });
+        console.error('Error updating CVE data for the new assets:', updateError);
+        toast.error('Failed to update CVE data for the new assets', { position: "top-right" });
       }
 
     } catch (error) {

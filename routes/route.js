@@ -4,11 +4,12 @@ const router = express.Router();
 const Cve = require("../models/cve");
 const Asset = require("../models/asset");
 const Vulnerability = require("../models/vulnerability");
+const Notification = require("../models/notification"); // เพิ่มการนำเข้า Notification
 const https = require("https");
 const { query, validationResult } = require("express-validator");
 const helmet = require("helmet");
-const WebSocket = require('ws'); // ตรวจสอบการนำเข้า WebSocket
-
+const WebSocket = require('ws');
+const authenticate = require("../middleware/authenticate");
 
 const app = express();
 app.use(helmet());
@@ -170,8 +171,12 @@ const fetchDataFromApi = async (asset) => {
 
         // ส่งการแจ้งเตือนผ่าน WebSocket
         if (wss) {
-          const notification = `New CVE found for asset ${asset.device_name}: ${vuln.cve.id}`;
-          wss.broadcast(notification);
+          const notificationMessage = `New CVE found for asset ${asset.device_name}: ${vuln.cve.id}`;
+          wss.broadcast(notificationMessage);
+
+          // บันทึกการแจ้งเตือนในฐานข้อมูล
+          const notification = new Notification({ message: notificationMessage });
+          await notification.save();
         }
       }
 
@@ -190,57 +195,48 @@ const fetchDataFromApi = async (asset) => {
   }
 };
 
-const mapAssetsToCves = async () => {
+const mapAssetsToCves = async (asset) => {
   try {
-    const assets = await Asset.find();
+    const cves = await fetchDataFromApi(asset); 
 
-    for (const asset of assets) {
-      const cves = await fetchDataFromApi(asset); 
+    const mappedCves = cves.map((cve) => {
+      const cvss = getCvssScore(cve);
+      const score = cvss.score;
+      const riskLevel = getRiskLevel(score, cvss.version);
 
-      const mappedCves = cves.map((cve) => {
-        const cvss = getCvssScore(cve);
-        const score = cvss.score;
-        const riskLevel = getRiskLevel(score, cvss.version);
+      const configurations = cve.configurations?.flatMap((config) =>
+        config.nodes?.flatMap((node) =>
+          node.cpeMatch?.map((match) => ({
+            criteria: match.criteria,
+            matchCriteriaId: match.matchCriteriaId,
+          }))
+        )
+      ) || [];
 
-        const configurations = cve.configurations?.flatMap((config) =>
-          config.nodes?.flatMap((node) =>
-            node.cpeMatch?.map((match) => ({
-              criteria: match.criteria,
-              matchCriteriaId: match.matchCriteriaId,
-            }))
-          )
-        ) || [];
+      return {
+        asset: asset._id,
+        device_name: asset.device_name,
+        application_name: asset.application_name,
+        operating_system: asset.operating_system,
+        os_version: asset.os_version,
+        cveId: cve.id,
+        cvssScore: score,
+        riskLevel: riskLevel,
+        descriptions: cve.descriptions,
+        configurations: configurations,
+        published: cve.published,
+        lastModified: cve.lastModified,
+        cvssVersion: cvss.version,
+      };
+    });
 
-        return {
-          asset: asset._id,
-          device_name: asset.device_name,
-          application_name: asset.application_name,
-          operating_system: asset.operating_system,
-          os_version: asset.os_version,
-          cveId: cve.id,
-          cvssScore: score,
-          riskLevel: riskLevel,
-          descriptions: cve.descriptions,
-          configurations: configurations,
-          published: cve.published,
-          lastModified: cve.lastModified,
-          cvssVersion: cvss.version,
-        };
-      });
-
-      await Vulnerability.insertMany(mappedCves);
-      console.log(
-        `Mapped CVEs for asset ${asset.device_name} and saved to vulnerabilities collection.`
-      );
-    }
+    await Vulnerability.insertMany(mappedCves);
+    console.log(
+      `Mapped CVEs for asset ${asset.device_name} and saved to vulnerabilities collection.`
+    );
   } catch (error) {
     console.error("Error mapping assets to CVEs:", error);
   }
-};
-
-const authenticate = (req, res, next) => {
-  // เพิ่ม logic สำหรับการยืนยันตัวตน
-  next();
 };
 
 router.get("/update", authenticate, async (req, res) => {
@@ -455,59 +451,6 @@ router.get('/assets-with-status', authenticate, async (req, res) => {
     res.status(500).send('Error fetching assets with status');
   }
 });
-
-// ฟังก์ชัน mockup สำหรับการเพิ่ม CVE ใหม่
-const mockAddCve = async (req, res) => {
-  try {
-    const asset = await Asset.findOne(); // เลือก Asset ที่ต้องการ
-    if (!asset) {
-      return res.status(404).send('No asset found');
-    }
-
-    const newCve = new Cve({
-      id: 'CVE-2019-12347', // เพิ่มการกำหนดค่า id
-      sourceIdentifier: 'Mock Source',
-      published: new Date(),
-      lastModified: new Date(),
-      vulnStatus: 'Analyzed',
-      descriptions: [{ lang: 'en', value: 'Windows Server 2012 SP2 Mock CVE for testing2' }],
-      metrics: {},
-      weaknesses: [],
-      configurations: [],
-      references: []
-    });
-    await newCve.save();
-
-    const vulnerability = new Vulnerability({
-      asset: asset._id,
-      operating_system: asset.operating_system,
-      os_version: asset.os_version,
-      cveId: newCve.id,
-      published: newCve.published,
-      lastModified: newCve.lastModified,
-      vulnStatus: newCve.vulnStatus,
-      descriptions: newCve.descriptions,
-      riskLevel: 'High',
-      cvssVersion: '3.1',
-      cvssScore: 9.8,
-      configurations: []
-    });
-    await vulnerability.save();
-
-    // ส่งการแจ้งเตือนผ่าน WebSocket
-    if (wss) {
-      const notification = `New CVE found for asset ${asset.device_name}: ${newCve.id}`;
-      wss.broadcast(notification);
-    }
-
-    res.status(201).send('Mock CVE added and notification sent');
-  } catch (error) {
-    console.error('Error adding mock CVE:', error);
-    res.status(500).send('Error adding mock CVE');
-  }
-};
-
-router.post('/mock-add-cve', mockAddCve);
 
 module.exports = {
   router,

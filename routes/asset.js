@@ -100,7 +100,19 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     await Asset.insertMany(assets);
-    await mapAssetsToCves();
+    for (const asset of assets) {
+      await mapAssetsToCves(asset);
+    }
+
+    // ส่งการแจ้งเตือนผ่าน WebSocket
+    if (wss) {
+      const notificationMessage = `New assets added from file: ${req.file.originalname}`;
+      wss.broadcast(notificationMessage);
+
+      // บันทึกการแจ้งเตือนในฐานข้อมูล
+      const notification = new Notification({ message: notificationMessage });
+      await notification.save();
+    }
 
     res.status(200).send('File uploaded and assets added successfully');
   } catch (error) {
@@ -131,7 +143,18 @@ router.post(
     try {
       const newAsset = new Asset(req.body);
       await newAsset.save();
-      await mapAssetsToCves();
+      await mapAssetsToCves(newAsset);
+
+      // ส่งการแจ้งเตือนผ่าน WebSocket
+      if (wss) {
+        const notificationMessage = `New asset added: ${newAsset.device_name}`;
+        wss.broadcast(notificationMessage);
+
+        // บันทึกการแจ้งเตือนในฐานข้อมูล
+        const notification = new Notification({ message: notificationMessage });
+        await notification.save();
+      }
+
       res.status(201).send(newAsset);
     } catch (error) {
       console.error('Error adding asset manually:', error);

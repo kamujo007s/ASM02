@@ -1,3 +1,4 @@
+// routes/asset.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -10,11 +11,9 @@ const xlsx = require('xlsx');
 const { body, validationResult } = require('express-validator');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const authenticate = require('../middleware/authenticate'); // Add this line
-
-const app = express();
-app.use(helmet());
-app.use(morgan('combined'));
+const authenticate = require('../middleware/authenticate');
+const Notification = require('../models/notification'); // Import Notification model
+const { getWss } = require('../websocket'); // Import getWss
 
 // Config Multer for file upload
 const storage = multer.diskStorage({
@@ -39,15 +38,23 @@ const processCsv = async (filePath) => {
     fs.createReadStream(filePath)
       .pipe(csvParser())
       .on('data', (row) => {
-        assets.push({
-          device_name: row.device_name,
-          application_name: row.application_name,
-          operating_system: row.operating_system,
-          os_version: row.os_version,
-        });
+        if (row.device_name && row.application_name && row.operating_system && row.os_version) {
+          assets.push({
+            device_name: row.device_name,
+            application_name: row.application_name,
+            operating_system: row.operating_system,
+            os_version: row.os_version,
+          });
+        } else {
+          console.error('Invalid row detected:', row);
+        }
       })
       .on('end', () => {
-        resolve(assets);
+        if (assets.length === 0) {
+          reject(new Error('No valid assets found in the CSV file.'));
+        } else {
+          resolve(assets);
+        }
       })
       .on('error', (error) => {
         reject(error);
@@ -76,12 +83,17 @@ const processExcel = async (filePath) => {
     };
   }).filter(asset => asset !== null);
 
+  if (assets.length === 0) {
+    throw new Error('No valid assets found in the Excel file.');
+  }
+
   return assets;
 };
 
 // Middleware for authentication
-router.use(authenticate); // Add this line
+router.use(authenticate);
 
+// Route to handle file upload
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {
     const fileType = path.extname(req.file.originalname).toLowerCase();
@@ -104,12 +116,13 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       await mapAssetsToCves(asset);
     }
 
-    // ส่งการแจ้งเตือนผ่าน WebSocket
+    // Send notification via WebSocket
+    const wss = getWss();
     if (wss) {
       const notificationMessage = `New assets added from file: ${req.file.originalname}`;
       wss.broadcast(notificationMessage);
 
-      // บันทึกการแจ้งเตือนในฐานข้อมูล
+      // Save notification in database
       const notification = new Notification({ message: notificationMessage });
       await notification.save();
     }
@@ -145,12 +158,13 @@ router.post(
       await newAsset.save();
       await mapAssetsToCves(newAsset);
 
-      // ส่งการแจ้งเตือนผ่าน WebSocket
+      // Send notification via WebSocket
+      const wss = getWss();
       if (wss) {
         const notificationMessage = `New asset added: ${newAsset.device_name}`;
         wss.broadcast(notificationMessage);
 
-        // บันทึกการแจ้งเตือนในฐานข้อมูล
+        // Save notification in database
         const notification = new Notification({ message: notificationMessage });
         await notification.save();
       }

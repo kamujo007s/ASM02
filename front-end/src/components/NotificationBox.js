@@ -1,6 +1,8 @@
+// NotificationBox.js
 import React, { useContext } from 'react';
 import { NotificationContext } from '../context/NotificationContext';
 import { List, Typography, Drawer } from 'antd';
+import moment from 'moment';
 
 const { Title } = Typography;
 
@@ -12,13 +14,14 @@ const NotificationBox = () => {
       title="Notifications"
       placement="right"
       onClose={toggleVisibility}
-      open={visible} // เปลี่ยนจาก visible เป็น open
+      open={visible}
     >
       <List
         dataSource={notifications}
         renderItem={(item) => (
           <List.Item>
-            <Typography.Text>{item}</Typography.Text>
+            <Typography.Text>{item.message}</Typography.Text>
+            <Typography.Text >{moment(item.createdAt).format('YYYY-MM-DD  HH:mm')}</Typography.Text>
           </List.Item>
         )}
       />

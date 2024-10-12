@@ -1,18 +1,17 @@
+// routes/route.js
 const axios = require("axios");
 const express = require("express");
 const router = express.Router();
 const Cve = require("../models/cve");
 const Asset = require("../models/asset");
 const Vulnerability = require("../models/vulnerability");
-const Notification = require("../models/notification"); // เพิ่มการนำเข้า Notification
+const Notification = require("../models/notification");
 const https = require("https");
 const { query, validationResult } = require("express-validator");
 const helmet = require("helmet");
 const WebSocket = require('ws');
 const authenticate = require("../middleware/authenticate");
-
-const app = express();
-app.use(helmet());
+const { getWss } = require('../websocket'); // Import getWss
 
 const axiosInstance = axios.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false }),
@@ -79,24 +78,14 @@ const getRiskLevel = (score, version) => {
   return "Unknown";
 };
 
-// เพิ่มการตั้งค่า WebSocket
-
-let wss;
-const setWebSocketServer = (server) => {
-  wss = new WebSocket.Server({ server }); // ตรวจสอบการสร้าง WebSocket.Server
-
-  wss.broadcast = function broadcast(data) {
-    wss.clients.forEach(function each(client) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data);
-      }
-    });
-  };
-};
-
+// Helper functions
 const fetchDataFromApi = async (asset) => {
+  if (!asset || !asset.operating_system || !asset.os_version) {
+    console.error("Invalid asset data:", asset);
+    return [];
+  }
   const { operating_system, os_version } = asset;
-  let keyword = `${operating_system}`; 
+  let keyword = `${operating_system}`;
   if (keyword.toLowerCase().includes("linux")) {
     keyword = `Red Hat ${os_version}` || `Red Hat Linux ${os_version}`;
   }
@@ -113,6 +102,13 @@ const fetchDataFromApi = async (asset) => {
       const batch = vulnerabilities.slice(i, i + 10);
 
       for (const vuln of batch) {
+        // ตรวจสอบว่า CVE มีอยู่ในฐานข้อมูลแล้วหรือไม่
+        const existingCve = await Cve.findOne({ id: vuln.cve.id });
+        if (existingCve) {
+          console.log(`CVE ${vuln.cve.id} already exists in database. Skipping.`);
+          continue; // ถ้ามีอยู่แล้ว ข้ามการอัปเดต
+        }
+
         const result = await Cve.updateOne(
           { id: vuln.cve.id },
           {
@@ -170,8 +166,9 @@ const fetchDataFromApi = async (asset) => {
         );
 
         // ส่งการแจ้งเตือนผ่าน WebSocket
+        const wss = getWss();
         if (wss) {
-          const notificationMessage = `New CVE found for asset ${asset.device_name}: ${vuln.cve.id}`;
+          const notificationMessage = `New CVE of ${asset.operating_system}: ${vuln.cve.id}`;
           wss.broadcast(notificationMessage);
 
           // บันทึกการแจ้งเตือนในฐานข้อมูล
@@ -195,9 +192,10 @@ const fetchDataFromApi = async (asset) => {
   }
 };
 
+
 const mapAssetsToCves = async (asset) => {
   try {
-    const cves = await fetchDataFromApi(asset); 
+    const cves = await fetchDataFromApi(asset);
 
     const mappedCves = cves.map((cve) => {
       const cvss = getCvssScore(cve);
@@ -230,14 +228,46 @@ const mapAssetsToCves = async (asset) => {
       };
     });
 
-    await Vulnerability.insertMany(mappedCves);
-    console.log(
-      `Mapped CVEs for asset ${asset.device_name} and saved to vulnerabilities collection.`
-    );
+    // ตรวจสอบว่า CVE นั้นมีอยู่แล้วในฐานข้อมูลหรือไม่
+    for (const mappedCve of mappedCves) {
+      const existingVulnerability = await Vulnerability.findOne({
+        asset: mappedCve.asset,
+        cveId: mappedCve.cveId,
+      });
+
+      if (existingVulnerability) {
+        console.log(`Vulnerability for CVE ${mappedCve.cveId} already exists. Skipping.`);
+        continue;
+      }
+
+      await Vulnerability.create(mappedCve);
+
+      // ส่งการแจ้งเตือนผ่าน WebSocket และบันทึกในฐานข้อมูล
+      const notificationMessage = `New CVE found for asset ${asset.device_name}: ${mappedCve.cveId}`;
+      
+      // ตรวจสอบว่ามีการแจ้งเตือนนี้ในฐานข้อมูลแล้วหรือไม่
+      const existingNotification = await Notification.findOne({ message: notificationMessage });
+      if (!existingNotification) {
+        const wss = getWss();
+        if (wss) {
+          wss.broadcast(notificationMessage);
+
+          // บันทึกการแจ้งเตือนในฐานข้อมูล
+          const notification = new Notification({ message: notificationMessage });
+          await notification.save();
+        }
+      } else {
+        console.log(`Notification for CVE ${mappedCve.cveId} already exists. Skipping.`);
+      }
+    }
+
+    console.log(`Mapped CVEs for asset ${asset.device_name} and saved to vulnerabilities collection.`);
   } catch (error) {
     console.error("Error mapping assets to CVEs:", error);
   }
 };
+
+
 
 router.get("/update", authenticate, async (req, res) => {
   try {
@@ -312,7 +342,7 @@ router.get(
   }
 );
 
-router.get("/assets/os-versions", authenticate, async (req, res) => {
+router.get('/assets/os-versions', authenticate, async (req, res) => {
   try {
     const uniqueOs = await Asset.distinct("operating_system");
     const versionsByOs = {};
@@ -407,7 +437,7 @@ router.get('/asset-over-time', authenticate, async (req, res) => {
               count: "$count",
             },
           },
-          totalCount: { $sum: "$count" },
+          totalCount: { $sum: '$count' },
         },
       },
       {
@@ -452,9 +482,18 @@ router.get('/assets-with-status', authenticate, async (req, res) => {
   }
 });
 
+router.get('/notifications', authenticate, async (req, res) => {
+  try {
+    const notifications = await Notification.find().sort({ createdAt: -1 });
+    res.json(notifications);
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    res.status(500).send('Error fetching notifications');
+  }
+});
+
 module.exports = {
   router,
   fetchDataFromApi,
   mapAssetsToCves,
-  setWebSocketServer,
 };

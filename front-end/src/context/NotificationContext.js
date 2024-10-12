@@ -1,9 +1,10 @@
+// NotificationContext.js
 import React, { createContext, useState } from 'react';
 
 export const NotificationContext = createContext();
 
 export const NotificationProvider = ({ children }) => {
-  const [notifications, setNotifications] = useState([]);
+  const [notifications, setNotifications] = useState([]); // ประกาศ setNotifications
   const [visible, setVisible] = useState(false);
 
   const addNotification = (notification) => {
@@ -11,12 +12,13 @@ export const NotificationProvider = ({ children }) => {
   };
 
   const toggleVisibility = () => {
-    setVisible(!visible);
+    setVisible((prevVisible) => !prevVisible);
   };
 
   return (
-    <NotificationContext.Provider value={{ notifications, addNotification, visible, toggleVisibility }}>
+    <NotificationContext.Provider value={{ notifications, addNotification, visible, toggleVisibility, setNotifications }}>
       {children}
     </NotificationContext.Provider>
   );
 };
+

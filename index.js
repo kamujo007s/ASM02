@@ -6,19 +6,19 @@ const cors = require('cors');
 const path = require('path');
 const os = require('os');
 const http = require('http');
-const WebSocket = require('ws');
 const app = express();
 const connectDB = require('./db/connection');
 const Asset = require('./models/asset');
-const Notification = require('./models/notification'); // เพิ่มการนำเข้า Notification
+const Notification = require('./models/notification');
 const assetRoutes = require('./routes/asset');
 const authRoutes = require('./routes/auth');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
-const authenticateMiddleware = require('./middleware/authenticate'); // เพิ่มการนำเข้า authenticateMiddleware
+const authenticateMiddleware = require('./middleware/authenticate');
 
-const assetList = require('./routes/assetList');
-const { router: cveRoutes, fetchDataFromApi, setWebSocketServer, mapAssetsToCves } = require('./routes/route');
+const { router: cveRoutes, fetchDataFromApi, mapAssetsToCves } = require('./routes/route');
+
+const { initializeWebSocket } = require('./websocket'); // Import initializeWebSocket
 
 app.use(helmet());
 app.use(cors());
@@ -30,34 +30,17 @@ app.use(morgan('combined'));
 connectDB();
 
 // API Routes
-app.use('/api/assets', authenticateMiddleware, assetRoutes); // ใช้ middleware ก่อนเข้าถึง assetRoutes
+app.use('/api/assets', authenticateMiddleware, assetRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/cve', authenticateMiddleware, cveRoutes); // ใช้ middleware ก่อนเข้าถึง cveRoutes
-app.use('/assetList', authenticateMiddleware, assetList); // ใช้ middleware ก่อนเข้าถึง assetList
+app.use('/cve', authenticateMiddleware, cveRoutes);
 
-// Create HTTP server and WebSocket server
+// Create HTTP server
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
 
-wss.on('connection', (ws) => {
-  console.log('New client connected');
-  ws.on('close', () => {
-    console.log('Client disconnected');
-  });
-});
+// Initialize WebSocket server
+initializeWebSocket(server);
 
-wss.broadcast = function broadcast(data) {
-  wss.clients.forEach(function each(client) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(data);
-    }
-  });
-};
-
-// ตั้งค่า WebSocket server
-setWebSocketServer(server);
-
-// Fetch CVE data for all assets when the server starts
+// Schedule tasks
 const fetchCveDataOnStart = async () => {
   try {
     const assets = await Asset.find();
@@ -92,6 +75,7 @@ cron.schedule('0 0 * * *', async () => {
     console.error('Error removing old notifications:', error);
   }
 });
+
 
 // Schedule the task to map assets to CVEs every day at midnight
 cron.schedule('0 0 * * *', async () => {

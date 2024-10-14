@@ -53,7 +53,7 @@ const ManageAssets = () => {
     try {
       const token = localStorage.getItem('token');
 
-      await axios.post('http://localhost:3012/api/assets', values, {
+      await axios.post('http://192.168.1.164:3012/api/assets', values, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -84,7 +84,7 @@ const ManageAssets = () => {
           }
         }, 500); // อัปเดตทุก 500ms
 
-        await axios.get(`http://localhost:3012/cve/update?device_name=${values.device_name}`, {
+        await axios.get(`http://192.168.1.164:3012/cve/update?device_name=${values.device_name}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -122,7 +122,7 @@ const ManageAssets = () => {
     try {
       const token = localStorage.getItem('token');
 
-      const response = await axios.post('http://localhost:3012/api/assets/upload', formData, {
+      const response = await axios.post('http://192.168.1.164:3012/api/assets/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${token}`,
@@ -158,7 +158,7 @@ const ManageAssets = () => {
 
       // Fetch CVE data for the newly uploaded assets only
       try {
-        const updateResponse = await axios.get('http://localhost:3012/cve/update', {
+        const updateResponse = await axios.get('http://192.168.1.164:3012/cve/update', {
           headers: {
             Authorization: `Bearer ${token}`,
           },

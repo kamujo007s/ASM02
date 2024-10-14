@@ -99,7 +99,7 @@ const fetchDataFromApi = async (asset) => {
     const vulnerabilities = response.data.vulnerabilities;
 
     for (let i = 0; i < vulnerabilities.length; i += 10) {
-      const batch = vulnerabilities.slice(i, i + 10);
+      const batch = vulnerabilities.slice(i, i + 10);         
 
       for (const vuln of batch) {
         // ตรวจสอบว่า CVE มีอยู่ในฐานข้อมูลแล้วหรือไม่
@@ -157,6 +157,7 @@ const fetchDataFromApi = async (asset) => {
           riskLevel: riskLevel,
           cvssVersion: cvss.version,
           cvssScore: score,
+          weaknesses: vuln.cve.weaknesses,
         };
 
         const vulnResult = await Vulnerability.updateOne(
@@ -225,6 +226,7 @@ const mapAssetsToCves = async (asset) => {
         published: cve.published,
         lastModified: cve.lastModified,
         cvssVersion: cvss.version,
+        weaknesses: cve.weaknesses,
       };
     });
 
@@ -358,54 +360,54 @@ router.get('/assets/os-versions', authenticate, async (req, res) => {
   }
 });
 
-router.get('/vulnerability-summary', authenticate, async (req, res) => {
-  try {
-    const summary = await Vulnerability.aggregate([
-      {
-        $group: {
-          _id: {
-            operating_system: '$operating_system',
-            os_version: '$os_version',  
-            riskLevel: '$riskLevel',
-          },
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $group: {
-          _id: {
-            operating_system: '$_id.operating_system',
-            os_version: '$_id.os_version',
-          },
-          riskLevels: {
-            $push: {
-              riskLevel: '$_id.riskLevel',
-              count: '$count',
-            },
-          },
-          totalCount: { $sum: '$count' },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          operating_system: '$_id.operating_system',
-          os_version: '$_id.os_version',
-          riskLevels: 1,
-          totalCount: 1,
-        },
-      },
-      {
-        $sort: { 'operating_system': 1, 'os_version': 1 }
-      }
-    ]);
+// router.get('/vulnerability-summary', authenticate, async (req, res) => {
+//   try {
+//     const summary = await Vulnerability.aggregate([
+//       {
+//         $group: {
+//           _id: {
+//             operating_system: '$operating_system',
+//             os_version: '$os_version',  
+//             riskLevel: '$riskLevel',
+//           },
+//           count: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $group: {
+//           _id: {
+//             operating_system: '$_id.operating_system',
+//             os_version: '$_id.os_version',
+//           },
+//           riskLevels: {
+//             $push: {
+//               riskLevel: '$_id.riskLevel',
+//               count: '$count',
+//             },
+//           },
+//           totalCount: { $sum: '$count' },
+//         },
+//       },
+//       {
+//         $project: {
+//           _id: 0,
+//           operating_system: '$_id.operating_system',
+//           os_version: '$_id.os_version',
+//           riskLevels: 1,
+//           totalCount: 1,
+//         },
+//       },
+//       {
+//         $sort: { 'operating_system': 1, 'os_version': 1 }
+//       }
+//     ]);
 
-    res.json(summary);
-  } catch (error) {
-    console.error('Error fetching vulnerability summary:', error);
-    res.status(500).send('Error fetching vulnerability summary');
-  }
-});
+//     res.json(summary);
+//   } catch (error) {
+//     console.error('Error fetching vulnerability summary:', error);
+//     res.status(500).send('Error fetching vulnerability summary');
+//   }
+// });
 
 const checkMatchingCve = async (operating_system, os_version) => {
   const vulnerabilities = await Vulnerability.find({
@@ -416,49 +418,49 @@ const checkMatchingCve = async (operating_system, os_version) => {
   return vulnerabilities.length > 0;
 };
 
-router.get('/asset-over-time', authenticate, async (req, res) => {
-  try {
-    const assetOverTime = await Vulnerability.aggregate([
-      {
-        $group: {
-          _id: {
-            year: { $year: "$published" },
-            operating_system: "$operating_system",
-          },
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $group: {
-          _id: "$_id.year",
-          osCounts: {
-            $push: {
-              operating_system: "$_id.operating_system",
-              count: "$count",
-            },
-          },
-          totalCount: { $sum: '$count' },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          year: "$_id",
-          osCounts: 1,
-          totalCount: 1,
-        },
-      },
-      {
-        $sort: { year: 1 },
-      },
-    ]);
+// router.get('/asset-over-time', authenticate, async (req, res) => {
+//   try {
+//     const assetOverTime = await Vulnerability.aggregate([
+//       {
+//         $group: {
+//           _id: {
+//             year: { $year: "$published" },
+//             operating_system: "$operating_system",
+//           },
+//           count: { $sum: 1 },
+//         },
+//       },
+//       {
+//         $group: {
+//           _id: "$_id.year",
+//           osCounts: {
+//             $push: {
+//               operating_system: "$_id.operating_system",
+//               count: "$count",
+//             },
+//           },
+//           totalCount: { $sum: '$count' },
+//         },
+//       },
+//       {
+//         $project: {
+//           _id: 0,
+//           year: "$_id",
+//           osCounts: 1,
+//           totalCount: 1,
+//         },
+//       },
+//       {
+//         $sort: { year: 1 },
+//       },
+//     ]);
 
-    res.json(assetOverTime);
-  } catch (error) {
-    console.error('Error fetching asset data over time:', error);
-    res.status(500).send('Error fetching asset data over time');
-  }
-});
+//     res.json(assetOverTime);
+//   } catch (error) {
+//     console.error('Error fetching asset data over time:', error);
+//     res.status(500).send('Error fetching asset data over time');
+//   }
+// });
 
 router.get('/assets-with-status', authenticate, async (req, res) => {
   try {
@@ -491,6 +493,217 @@ router.get('/notifications', authenticate, async (req, res) => {
     res.status(500).send('Error fetching notifications');
   }
 });
+
+router.get('/cwe-breakdown', authenticate, async (req, res) => {
+  try {
+    const cweBreakdown = await Vulnerability.aggregate([
+      { $unwind: '$weaknesses' },  // แยกข้อมูล weaknesses ออกเป็นรายการเดียว
+      {
+        $group: {
+          _id: '$weaknesses.description',  // รวมกลุ่มตาม description ของ weaknesses
+          count: { $sum: 1 },  // นับจำนวนครั้งที่ CWE ปรากฏ
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          cwe: '$_id',
+          count: 1,
+        },
+      },
+      {
+        $sort: { count: -1 },  // เรียงจากมากไปน้อย
+      },
+    ]);
+
+    res.json(cweBreakdown);
+  } catch (error) {
+    console.error('Error fetching CWE breakdown:', error);
+    res.status(500).send('Error fetching CWE breakdown');
+  }
+});
+
+router.get('/attack-vector', authenticate, async (req, res) => {
+  try {
+    const attackVectorData = await Vulnerability.aggregate([
+      { $match: { cvssScore: { $exists: true } } },  // ตรวจสอบว่า cvssScore มีอยู่
+      {
+        $group: {
+          _id: '$cvssScore',  // รวมกลุ่มตาม score
+          count: { $sum: 1 },  // นับจำนวน
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          attackVector: '$_id',
+          count: 1,
+        },
+      },
+    ]);
+
+    res.json(attackVectorData);
+  } catch (error) {
+    console.error('Error fetching attack vector data:', error);
+    res.status(500).send('Error fetching attack vector data');
+  }
+});
+
+router.get('/unpatched-products', authenticate, async (req, res) => {
+  try {
+    const unpatchedProducts = await Vulnerability.aggregate([
+      { $match: { vulnStatus: 'Unpatched' } },  // ดึงเฉพาะสินค้าที่ไม่ได้ patch
+      {
+        $group: {
+          _id: {
+            operating_system: '$operating_system',
+            os_version: '$os_version',
+          },
+          unpatched: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          operating_system: '$_id.operating_system',
+          os_version: '$_id.os_version',
+          unpatched: 1,
+        },
+      },
+    ]);
+
+    res.json(unpatchedProducts);
+  } catch (error) {
+    console.error('Error fetching unpatched products:', error);
+    res.status(500).send('Error fetching unpatched products');
+  }
+});
+
+
+// Fetch CVSS data for vulnerability severity chart
+router.get('/cvss-data', authenticate, async (req, res) => {
+  try {
+    const cvssData = await Vulnerability.find({}, { cvssScore: 1, _id: 0 });
+    res.json(cvssData);
+  } catch (error) {
+    console.error('Error fetching CVSS data:', error);
+    res.status(500).send('Error fetching CVSS data');
+  }
+});
+
+// Fetch vulnerabilities over time
+router.get('/asset-over-time', authenticate, async (req, res) => {
+  try {
+    const vulnerabilitiesOverTime = await Vulnerability.aggregate([
+      {
+        $group: {
+          _id: { year: { $year: '$published' } },
+          totalCount: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.year': 1 } }
+    ]);
+    res.json(vulnerabilitiesOverTime);
+  } catch (error) {
+    console.error('Error fetching vulnerabilities over time:', error);
+    res.status(500).send('Error fetching vulnerabilities over time');
+  }
+});
+
+// Fetch CWE breakdown data
+router.get('/cwe-breakdown', authenticate, async (req, res) => {
+  try {
+    const cweData = await Vulnerability.aggregate([
+      { $unwind: '$weaknesses' },
+      { $group: { _id: '$weaknesses.description', count: { $sum: 1 } } },
+      { $project: { _id: 0, cwe: '$_id', count: 1 } },
+      { $sort: { count: -1 } }
+    ]);
+    res.json(cweData);
+  } catch (error) {
+    console.error('Error fetching CWE breakdown:', error);
+    res.status(500).send('Error fetching CWE breakdown');
+  }
+});
+
+// Fetch vulnerability distribution by OS
+router.get('/vulnerability-summary', authenticate, async (req, res) => {
+  try {
+    const osData = await Vulnerability.aggregate([
+      { $group: { _id: '$operating_system', count: { $sum: 1 } } },
+      { $project: { _id: 0, operating_system: '$_id', count: 1 } }
+    ]);
+    res.json(osData);
+  } catch (error) {
+    console.error('Error fetching vulnerability distribution by OS:', error);
+    res.status(500).send('Error fetching vulnerability distribution by OS');
+  }
+});
+
+// Fetch unpatched vulnerabilities
+router.get('/unpatched-products', authenticate, async (req, res) => {
+  try {
+    const unpatchedData = await Vulnerability.find({ vulnStatus: 'Unpatched' });
+    res.json(unpatchedData);
+  } catch (error) {
+    console.error('Error fetching unpatched vulnerabilities:', error);
+    res.status(500).send('Error fetching unpatched vulnerabilities');
+  }
+});
+
+// Fetch attack vector data
+router.get('/attack-vector', authenticate, async (req, res) => {
+  try {
+    const vectorData = await Vulnerability.aggregate([
+      { $group: { _id: '$metrics.cvssMetricV2.cvssData.accessVector', count: { $sum: 1 } } },
+      { $project: { _id: 0, attackVector: '$_id', count: 1 } }
+    ]);
+    res.json(vectorData);
+  } catch (error) {
+    console.error('Error fetching attack vector data:', error);
+    res.status(500).send('Error fetching attack vector data');
+  }
+});
+
+// Fetch impact score analysis data
+router.get('/impact-score', authenticate, async (req, res) => {
+  try {
+    const impactData = await Vulnerability.aggregate([
+      { $group: { _id: '$metrics.cvssMetricV2.impactScore', count: { $sum: 1 } } },
+      { $project: { _id: 0, impactScore: '$_id', count: 1 } }
+    ]);
+    res.json(impactData);
+  } catch (error) {
+    console.error('Error fetching impact score data:', error);
+    res.status(500).send('Error fetching impact score data');
+  }
+});
+
+// Fetch vulnerabilities by asset
+router.get('/asset-vulnerabilities', authenticate, async (req, res) => {
+  try {
+    const assetVulnerabilityData = await Vulnerability.aggregate([
+      { $group: { _id: '$asset', count: { $sum: 1 } } },
+      { $project: { _id: 0, asset: '$_id', count: 1 } }
+    ]);
+    res.json(assetVulnerabilityData);
+  } catch (error) {
+    console.error('Error fetching vulnerabilities by asset:', error);
+    res.status(500).send('Error fetching vulnerabilities by asset');
+  }
+});
+
+// Fetch CVE details for table
+router.get('/cve-details', authenticate, async (req, res) => {
+  try {
+    const cveDetails = await Vulnerability.find({}, { cveId: 1, descriptions: 1, published: 1, lastModified: 1, cvssScore: 1 });
+    res.json(cveDetails);
+  } catch (error) {
+    console.error('Error fetching CVE details:', error);
+    res.status(500).send('Error fetching CVE details');
+  }
+});
+
 
 module.exports = {
   router,

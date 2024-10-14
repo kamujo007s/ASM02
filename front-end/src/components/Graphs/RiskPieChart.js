@@ -1,3 +1,4 @@
+//RiskPieChart.js
 import React from 'react';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale } from 'chart.js';
 import { Pie } from 'react-chartjs-2';

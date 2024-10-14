@@ -22,11 +22,11 @@ const initializeWebSocket = (server) => {
           return;
         }
 
-        console.log('New client connected with token:', decoded);
+        // console.log('New client connected with token:', decoded);
         ws.user = decoded;
 
         ws.on('close', () => {
-          console.log('Client disconnected');
+          // console.log('Client disconnected');
         });
 
         ws.on('error', (error) => {

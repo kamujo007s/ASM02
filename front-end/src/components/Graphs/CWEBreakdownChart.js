@@ -36,7 +36,8 @@ const CWEBreakdownChart = ({ cweData }) => {
     },
     responsive: true,
   };
-
+console.log('data', data)
+console.log('options', options)
   return (
     <ConfigProvider
       theme={{

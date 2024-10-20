@@ -1,34 +1,42 @@
-// ImpactScoreBarChart.js
 import React from 'react';
 import { Bar } from 'react-chartjs-2';
-import { ConfigProvider, theme } from 'antd';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js';
+import { ConfigProvider } from 'antd';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
-const ImpactScoreBarChart = ({ impactData }) => {
-  const labels = impactData.map(item => item.cveId);
-  const dataValues = impactData.map(item => item.impactScore);
+const ImpactScoreBarChart = ({ impactData = [] }) => {
+  const { confidentialityImpact, integrityImpact, availabilityImpact } = impactData[0] || {
+    confidentialityImpact: 0,
+    integrityImpact: 0,
+    availabilityImpact: 0
+  };
+
+  const labels = ['Confidentiality', 'Integrity', 'Availability'];
+  const dataValues = [confidentialityImpact, integrityImpact, availabilityImpact];
 
   const data = {
     labels,
     datasets: [{
-      label: 'Impact Score',
+      label: 'Number of Vulnerabilities',
       data: dataValues,
-      backgroundColor: '#cc65fe'
-    }]
+      backgroundColor: ['#36a2eb', '#ff6384', '#ffce56'],
+    }],
   };
 
   const options = {
     responsive: true,
-    scales: { y: { beginAtZero: true } }
+    scales: {
+      y: { beginAtZero: true },
+    },
+    plugins: {
+      legend: { display: true, position: 'bottom' },
+    },
   };
 
   return (
-    <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
-      <div style={{ width: '100%', height: '300px' }}>
-        <Bar data={data} options={options} />
-      </div>
+    <ConfigProvider theme={{ token: { colorPrimary: "#1890ff", borderRadius: 2, colorBgContainer: "#ffffff" } }}>
+      <Bar data={data} options={options} />
     </ConfigProvider>
   );
 };

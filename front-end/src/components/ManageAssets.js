@@ -1,9 +1,10 @@
-// ManageAssets.js 
-import React, { useState, useContext } from 'react';
+// ManageAssets.js
+
+import React, { useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { ConfigProvider, theme, Form, Input, Button, Card, Upload, Progress } from 'antd'; // นำเข้า Progress
+import { ConfigProvider, theme, Form, Input, Button, Card, Upload } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import { NotificationContext } from '../context/NotificationContext';
 
@@ -13,12 +14,41 @@ const ManageAssets = () => {
     application_name: '',
     operating_system: '',
     os_version: '',
+    contact: '',
   });
 
   const [file, setFile] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(0); // สำหรับเก็บเปอร์เซ็นต์การอัปโหลด
-  const [cveProgress, setCveProgress] = useState(0); // สำหรับเก็บเปอร์เซ็นต์การดึงข้อมูล CVE
+  const [isUploading, setIsUploading] = useState(false);
   const { addNotification } = useContext(NotificationContext);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const ws = new WebSocket(`ws://localhost:3012?token=${token}`);
+
+    ws.onmessage = (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch (e) {
+        console.error('Error parsing WebSocket message:', e);
+        data = { type: 'text', message: event.data };
+      }
+
+      if (data.type === 'notification' || data.type === 'text') {
+        // แสดงการแจ้งเตือนเมื่อได้รับข้อความ
+        toast.info(data.message, { position: 'top-right' });
+        addNotification(data.message);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [addNotification]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -28,8 +58,9 @@ const ManageAssets = () => {
     });
   };
 
-  const handleFileChange = ({ file }) => {
-    setFile(file.originFileObj);
+  const handleFileChange = (info) => {
+    const { fileList } = info;
+    setFile(fileList[0]);
   };
 
   const resetForm = () => {
@@ -38,10 +69,10 @@ const ManageAssets = () => {
       application_name: '',
       operating_system: '',
       os_version: '',
+      contact: '',
     });
     setFile(null);
-    setUploadProgress(0);
-    setCveProgress(0);
+    setIsUploading(false);
   };
 
   const handleSubmit = async (values) => {
@@ -49,17 +80,17 @@ const ManageAssets = () => {
       autoClose: false,
       toastId: 'addingAsset',
     });
+    setIsUploading(true);
 
     try {
       const token = localStorage.getItem('token');
 
-      await axios.post('http://192.168.1.164:3012/api/assets', values, {
+      await axios.post('http://localhost:3012/api/assets', values, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      // อัปเดต Toast และรีเซ็ตฟอร์ม
       toast.update(id, {
         render: 'Asset added successfully!',
         type: 'success',
@@ -67,34 +98,8 @@ const ManageAssets = () => {
         autoClose: 5000,
       });
 
-      resetForm(); // รีเซ็ตฟอร์มหลังจากเพิ่มสินทรัพย์เสร็จสิ้น
-
-      // เพิ่มการแจ้งเตือน
       addNotification(`Asset ${values.device_name} added successfully`);
 
-      // Fetch CVE data for the newly added asset and show progress
-      try {
-        const totalCve = 100; // สมมติว่าดึงข้อมูล CVE ได้ 100 รายการ
-        let currentProgress = 0;
-        const interval = setInterval(() => {
-          currentProgress += 1; // จำลองการเพิ่มเปอร์เซ็นต์การดึงข้อมูล
-          setCveProgress((currentProgress / totalCve) * 100);
-          if (currentProgress >= totalCve) {
-            clearInterval(interval);
-          }
-        }, 500); // อัปเดตทุก 500ms
-
-        await axios.get(`http://192.168.1.164:3012/cve/update?device_name=${values.device_name}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        toast.success('CVE data updated successfully for the new asset!', { position: 'top-right' });
-      } catch (updateError) {
-        console.error('Error updating CVE data for the new asset:', updateError);
-        toast.error('Failed to update CVE data for the new asset', { position: 'top-right' });
-      }
     } catch (error) {
       console.error('Error adding asset:', error);
       toast.update(id, {
@@ -103,6 +108,9 @@ const ManageAssets = () => {
         isLoading: false,
         autoClose: 5000,
       });
+    } finally {
+      setIsUploading(false);
+      resetForm();
     }
   };
 
@@ -113,36 +121,22 @@ const ManageAssets = () => {
     }
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', file.originFileObj || file);
 
-    setUploadProgress(0); // รีเซ็ตเปอร์เซ็นต์การอัปโหลด
+    setIsUploading(true);
 
     const id = toast.loading('Uploading file...', { position: 'top-right' });
 
     try {
       const token = localStorage.getItem('token');
 
-      const response = await axios.post('http://192.168.1.164:3012/api/assets/upload', formData, {
+      await axios.post('http://localhost:3012/api/assets/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${token}`,
         },
-        onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          setUploadProgress(percentCompleted); // อัปเดตเปอร์เซ็นต์การอัปโหลด
-
-          // อัปเดต Progress bar ใน toast
-          toast.update(id, {
-            render: <Progress percent={uploadProgress} />,
-            isLoading: true,
-            autoClose: false,
-          });
-        },
       });
 
-      console.log('Upload response:', response);
-
-      // อัปเดต Toast และรีเซ็ตฟอร์ม
       toast.update(id, {
         render: 'File uploaded successfully',
         type: 'success',
@@ -151,24 +145,8 @@ const ManageAssets = () => {
         position: 'top-right',
       });
 
-      resetForm(); // รีเซ็ตฟอร์มหลังจากการอัปโหลดเสร็จสิ้น
-
-      // เพิ่มการแจ้งเตือน
       addNotification('File uploaded successfully');
 
-      // Fetch CVE data for the newly uploaded assets only
-      try {
-        const updateResponse = await axios.get('http://192.168.1.164:3012/cve/update', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        console.log('CVE update response:', updateResponse);
-        toast.success('Data updated successfully for the new assets', { position: 'top-right' });
-      } catch (updateError) {
-        console.error('Error updating CVE data for the new assets:', updateError);
-        toast.error('Failed to update CVE data for the new assets', { position: 'top-right' });
-      }
     } catch (error) {
       console.error('Error uploading file:', error);
       if (error.response) {
@@ -196,6 +174,9 @@ const ManageAssets = () => {
           position: 'top-right',
         });
       }
+    } finally {
+      setIsUploading(false);
+      resetForm();
     }
   };
 
@@ -214,7 +195,10 @@ const ManageAssets = () => {
       <div className="container mt-5" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <ToastContainer />
 
-        <Card title="Add Asset Manually" style={{ backgroundColor: '#ffffff', color: '#1f1f1f', marginBottom: '20px', width: '100%', maxWidth: '600px' }}>
+        <Card
+          title="Add Asset Manually"
+          style={{ backgroundColor: '#ffffff', color: '#1f1f1f', marginBottom: '20px', width: '100%', maxWidth: '600px' }}
+        >
           <Form onFinish={handleSubmit} layout="vertical">
             <Form.Item
               label="Asset Name"
@@ -244,27 +228,28 @@ const ManageAssets = () => {
             >
               <Input name="os_version" value={asset.os_version} onChange={handleChange} />
             </Form.Item>
+            <Form.Item
+              label="Contact Options"
+              name="contact"
+              rules={[{ required: false }]}
+            >
+              <Input name="contact" value={asset.contact} onChange={handleChange} />
+            </Form.Item>
             <Form.Item>
-              <Button type="primary" htmlType="submit">Add Asset</Button>
+              <Button type="primary" htmlType="submit" disabled={isUploading}>
+                Add Asset
+              </Button>
             </Form.Item>
           </Form>
 
           <h3 style={{ textAlign: 'center', margin: '20px 0' }}>or Upload file</h3>
 
-          <Upload beforeUpload={() => true} onChange={handleFileChange} maxCount={1}>
-            <Button icon={<UploadOutlined />}>Select File</Button>
+          <Upload beforeUpload={() => false} onChange={handleFileChange} maxCount={1} disabled={isUploading}>
+            <Button icon={<UploadOutlined />} disabled={isUploading}>Select File</Button>
           </Upload>
-          <Button type="primary" onClick={handleUpload} disabled={!file} style={{ marginTop: '20px' }}>
+          <Button type="primary" onClick={handleUpload} disabled={!file || isUploading} style={{ marginTop: '20px' }}>
             Upload
           </Button>
-
-          {uploadProgress > 0 && (
-            <Progress percent={uploadProgress} style={{ marginTop: '20px' }} /> // แสดง Progress bar สำหรับการอัปโหลด
-          )}
-
-          {cveProgress > 0 && (
-            <Progress percent={cveProgress} style={{ marginTop: '20px' }} /> // แสดง Progress bar การดึงข้อมูล CVE
-          )}
         </Card>
       </div>
     </ConfigProvider>

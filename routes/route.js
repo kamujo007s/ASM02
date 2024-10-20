@@ -8,8 +8,6 @@ const Vulnerability = require("../models/vulnerability");
 const Notification = require("../models/notification");
 const https = require("https");
 const { query, validationResult } = require("express-validator");
-const helmet = require("helmet");
-const WebSocket = require('ws');
 const authenticate = require("../middleware/authenticate");
 const { getWss } = require('../websocket'); // Import getWss
 
@@ -79,9 +77,8 @@ const getRiskLevel = (score, version) => {
 };
 
 // Helper functions
-const fetchDataFromApi = async (asset) => {
+const fetchDataFromApi = async (asset, userId) => {
   if (!asset || !asset.operating_system || !asset.os_version) {
-    console.error("Invalid asset data:", asset);
     return [];
   }
   const { operating_system, os_version } = asset;
@@ -92,20 +89,23 @@ const fetchDataFromApi = async (asset) => {
   const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(
     keyword
   )}`;
-  console.log(`Fetching data from API using keyword: ${keyword}`);
 
   try {
     const response = await axiosInstance.get(url);
     const vulnerabilities = response.data.vulnerabilities;
 
+    const totalVulnerabilities = vulnerabilities.length;
+    let processedVulnerabilities = 0;
+
+    const wss = getWss();
+
     for (let i = 0; i < vulnerabilities.length; i += 10) {
-      const batch = vulnerabilities.slice(i, i + 10);         
+      const batch = vulnerabilities.slice(i, i + 10);
 
       for (const vuln of batch) {
         // ตรวจสอบว่า CVE มีอยู่ในฐานข้อมูลแล้วหรือไม่
         const existingCve = await Cve.findOne({ id: vuln.cve.id });
         if (existingCve) {
-          console.log(`CVE ${vuln.cve.id} already exists in database. Skipping.`);
           continue; // ถ้ามีอยู่แล้ว ข้ามการอัปเดต
         }
 
@@ -167,15 +167,17 @@ const fetchDataFromApi = async (asset) => {
         );
 
         // ส่งการแจ้งเตือนผ่าน WebSocket
-        const wss = getWss();
         if (wss) {
           const notificationMessage = `New CVE of ${asset.operating_system}: ${vuln.cve.id}`;
-          wss.broadcast(notificationMessage);
-
+          const notificationData = { type: 'notification', message: notificationMessage };
+          wss.broadcast(notificationData);
+        
           // บันทึกการแจ้งเตือนในฐานข้อมูล
           const notification = new Notification({ message: notificationMessage });
           await notification.save();
         }
+
+        processedVulnerabilities++;
       }
 
       if (i + 10 < vulnerabilities.length) {
@@ -185,95 +187,104 @@ const fetchDataFromApi = async (asset) => {
 
     return vulnerabilities.map((vuln) => vuln.cve);
   } catch (error) {
-    console.error(
-      `Error fetching data for OS: ${operating_system}, Version: ${os_version}:`,
-      error
-    );
+    console.error(`Error fetching data for OS: ${operating_system}, Version: ${os_version}:`, error);
     return [];
   }
 };
 
-
-const mapAssetsToCves = async (asset) => {
+const mapAssetsToCves = async (asset = null, userId) => {
   try {
-    const cves = await fetchDataFromApi(asset);
+    const assets = asset ? [asset] : await Asset.find();
 
-    const mappedCves = cves.map((cve) => {
-      const cvss = getCvssScore(cve);
-      const score = cvss.score;
-      const riskLevel = getRiskLevel(score, cvss.version);
+    const wss = getWss();
 
-      const configurations = cve.configurations?.flatMap((config) =>
-        config.nodes?.flatMap((node) =>
-          node.cpeMatch?.map((match) => ({
-            criteria: match.criteria,
-            matchCriteriaId: match.matchCriteriaId,
-          }))
-        )
-      ) || [];
+    for (const assetItem of assets) {
+      const cves = await fetchDataFromApi(assetItem, userId);
 
-      return {
-        asset: asset._id,
-        device_name: asset.device_name,
-        application_name: asset.application_name,
-        operating_system: asset.operating_system,
-        os_version: asset.os_version,
-        cveId: cve.id,
-        cvssScore: score,
-        riskLevel: riskLevel,
-        descriptions: cve.descriptions,
-        configurations: configurations,
-        published: cve.published,
-        lastModified: cve.lastModified,
-        cvssVersion: cvss.version,
-        weaknesses: cve.weaknesses,
-      };
-    });
+      const mappedCves = cves.map((cve) => {
+        const cvss = getCvssScore(cve);
+        const score = cvss.score;
+        const riskLevel = getRiskLevel(score, cvss.version);
 
-    // ตรวจสอบว่า CVE นั้นมีอยู่แล้วในฐานข้อมูลหรือไม่
-    for (const mappedCve of mappedCves) {
-      const existingVulnerability = await Vulnerability.findOne({
-        asset: mappedCve.asset,
-        cveId: mappedCve.cveId,
+        const configurations = cve.configurations?.flatMap((config) =>
+          config.nodes?.flatMap((node) =>
+            node.cpeMatch?.map((match) => ({
+              criteria: match.criteria,
+              matchCriteriaId: match.matchCriteriaId,
+            }))
+          )
+        ) || [];
+
+        return {
+          asset: assetItem._id,
+          device_name: assetItem.device_name,
+          application_name: assetItem.application_name,
+          operating_system: assetItem.operating_system,
+          os_version: assetItem.os_version,
+          cveId: cve.id,
+          cvssScore: score,
+          riskLevel: riskLevel,
+          descriptions: cve.descriptions,
+          configurations: configurations,
+          published: cve.published,
+          lastModified: cve.lastModified,
+          cvssVersion: cvss.version,
+          weaknesses: cve.weaknesses,
+        };
       });
 
-      if (existingVulnerability) {
-        console.log(`Vulnerability for CVE ${mappedCve.cveId} already exists. Skipping.`);
-        continue;
-      }
+      // ตรวจสอบว่า CVE นั้นมีอยู่แล้วในฐานข้อมูลหรือไม่
+      for (const mappedCve of mappedCves) {
+        const existingVulnerability = await Vulnerability.findOne({
+          asset: mappedCve.asset,
+          cveId: mappedCve.cveId,
+        });
 
-      await Vulnerability.create(mappedCve);
-
-      // ส่งการแจ้งเตือนผ่าน WebSocket และบันทึกในฐานข้อมูล
-      const notificationMessage = `New CVE found for asset ${asset.device_name}: ${mappedCve.cveId}`;
-      
-      // ตรวจสอบว่ามีการแจ้งเตือนนี้ในฐานข้อมูลแล้วหรือไม่
-      const existingNotification = await Notification.findOne({ message: notificationMessage });
-      if (!existingNotification) {
-        const wss = getWss();
-        if (wss) {
-          wss.broadcast(notificationMessage);
-
-          // บันทึกการแจ้งเตือนในฐานข้อมูล
-          const notification = new Notification({ message: notificationMessage });
-          await notification.save();
+        if (existingVulnerability) {
+          continue;
         }
-      } else {
-        console.log(`Notification for CVE ${mappedCve.cveId} already exists. Skipping.`);
+
+        await Vulnerability.create(mappedCve);
+
+        // ส่งการแจ้งเตือนผ่าน WebSocket และบันทึกในฐานข้อมูล
+        const notificationMessage = `New CVE found for asset ${assetItem.device_name}: ${mappedCve.cveId}`;
+
+        // ตรวจสอบว่ามีการแจ้งเตือนนี้ในฐานข้อมูลแล้วหรือไม่
+        const existingNotification = await Notification.findOne({ message: notificationMessage });
+        if (!existingNotification) {
+          if (wss) {
+            const notificationData = { type: 'notification', message: notificationMessage };
+            wss.broadcast(notificationData);
+
+            // บันทึกการแจ้งเตือนในฐานข้อมูล
+            const notification = new Notification({ message: notificationMessage });
+            await notification.save();
+          }
+        }
       }
     }
 
-    console.log(`Mapped CVEs for asset ${asset.device_name} and saved to vulnerabilities collection.`);
   } catch (error) {
     console.error("Error mapping assets to CVEs:", error);
   }
 };
 
 
-
 router.get("/update", authenticate, async (req, res) => {
   try {
-    await mapAssetsToCves();
+    const deviceName = req.query.device_name;
+    const userId = req.user.id;
+
+    let asset = null;
+
+    if (deviceName) {
+      asset = await Asset.findOne({ device_name: deviceName });
+      if (!asset) {
+        return res.status(404).send("Asset not found");
+      }
+    }
+
+    await mapAssetsToCves(asset, userId);
     res.send("Data updated and mapped successfully");
   } catch (error) {
     console.error("Error updating and mapping data:", error);
@@ -338,7 +349,7 @@ router.get(
 
       res.json({ mappedVulnerabilities: vulnerabilities, totalCount });
     } catch (error) {
-      console.error("Error fetching vulnerabilities:", error);
+      // console.error("Error fetching vulnerabilities:", error);
       res.status(500).send("Error fetching data");
     }
   }
@@ -355,7 +366,7 @@ router.get('/assets/os-versions', authenticate, async (req, res) => {
 
     res.json({ uniqueOs, versionsByOs });
   } catch (error) {
-    console.error("Error fetching OS and versions:", error);
+    // console.error("Error fetching OS and versions:", error);
     res.status(500).send("Error fetching data");
   }
 });
@@ -404,10 +415,28 @@ router.get('/assets/os-versions', authenticate, async (req, res) => {
 
 //     res.json(summary);
 //   } catch (error) {
-//     console.error('Error fetching vulnerability summary:', error);
+    // console.error('Error fetching vulnerability summary:', error);
 //     res.status(500).send('Error fetching vulnerability summary');
 //   }
 // });
+
+// Add a new route to fetch a specific CVE by its ID
+router.get('/vulnerabilities/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const vulnerability = await Vulnerability.findOne({ cveId: id });
+
+    if (!vulnerability) {
+      return res.status(404).send("Vulnerability not found");
+    }
+
+    res.json(vulnerability);
+  } catch (error) {
+    console.error('Error fetching vulnerability:', error);
+    res.status(500).send('Error fetching vulnerability');
+  }
+});
+
 
 const checkMatchingCve = async (operating_system, os_version) => {
   const vulnerabilities = await Vulnerability.find({
@@ -457,7 +486,7 @@ const checkMatchingCve = async (operating_system, os_version) => {
 
 //     res.json(assetOverTime);
 //   } catch (error) {
-//     console.error('Error fetching asset data over time:', error);
+    // console.error('Error fetching asset data over time:', error);
 //     res.status(500).send('Error fetching asset data over time');
 //   }
 // });
@@ -479,7 +508,7 @@ router.get('/assets-with-status', authenticate, async (req, res) => {
 
     res.json(assetWithStatus);
   } catch (error) {
-    console.error('Error fetching assets with status:', error);
+    // console.error('Error fetching assets with status:', error);
     res.status(500).send('Error fetching assets with status');
   }
 });
@@ -489,104 +518,18 @@ router.get('/notifications', authenticate, async (req, res) => {
     const notifications = await Notification.find().sort({ createdAt: -1 });
     res.json(notifications);
   } catch (error) {
-    console.error('Error fetching notifications:', error);
+    // console.error('Error fetching notifications:', error);
     res.status(500).send('Error fetching notifications');
   }
 });
 
-router.get('/cwe-breakdown', authenticate, async (req, res) => {
-  try {
-    const cweBreakdown = await Vulnerability.aggregate([
-      { $unwind: '$weaknesses' },  // แยกข้อมูล weaknesses ออกเป็นรายการเดียว
-      {
-        $group: {
-          _id: '$weaknesses.description',  // รวมกลุ่มตาม description ของ weaknesses
-          count: { $sum: 1 },  // นับจำนวนครั้งที่ CWE ปรากฏ
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          cwe: '$_id',
-          count: 1,
-        },
-      },
-      {
-        $sort: { count: -1 },  // เรียงจากมากไปน้อย
-      },
-    ]);
-
-    res.json(cweBreakdown);
-  } catch (error) {
-    console.error('Error fetching CWE breakdown:', error);
-    res.status(500).send('Error fetching CWE breakdown');
-  }
-});
-
-router.get('/attack-vector', authenticate, async (req, res) => {
-  try {
-    const attackVectorData = await Vulnerability.aggregate([
-      { $match: { cvssScore: { $exists: true } } },  // ตรวจสอบว่า cvssScore มีอยู่
-      {
-        $group: {
-          _id: '$cvssScore',  // รวมกลุ่มตาม score
-          count: { $sum: 1 },  // นับจำนวน
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          attackVector: '$_id',
-          count: 1,
-        },
-      },
-    ]);
-
-    res.json(attackVectorData);
-  } catch (error) {
-    console.error('Error fetching attack vector data:', error);
-    res.status(500).send('Error fetching attack vector data');
-  }
-});
-
-router.get('/unpatched-products', authenticate, async (req, res) => {
-  try {
-    const unpatchedProducts = await Vulnerability.aggregate([
-      { $match: { vulnStatus: 'Unpatched' } },  // ดึงเฉพาะสินค้าที่ไม่ได้ patch
-      {
-        $group: {
-          _id: {
-            operating_system: '$operating_system',
-            os_version: '$os_version',
-          },
-          unpatched: { $sum: 1 },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          operating_system: '$_id.operating_system',
-          os_version: '$_id.os_version',
-          unpatched: 1,
-        },
-      },
-    ]);
-
-    res.json(unpatchedProducts);
-  } catch (error) {
-    console.error('Error fetching unpatched products:', error);
-    res.status(500).send('Error fetching unpatched products');
-  }
-});
-
-
 // Fetch CVSS data for vulnerability severity chart
 router.get('/cvss-data', authenticate, async (req, res) => {
   try {
-    const cvssData = await Vulnerability.find({}, { cvssScore: 1, _id: 0 });
+    const cvssData = await Vulnerability.find({}, { cvssScore: 1, riskLevel: 1, _id: 0 });
     res.json(cvssData);
   } catch (error) {
-    console.error('Error fetching CVSS data:', error);
+    // console.error('Error fetching CVSS data:', error);
     res.status(500).send('Error fetching CVSS data');
   }
 });
@@ -605,7 +548,7 @@ router.get('/asset-over-time', authenticate, async (req, res) => {
     ]);
     res.json(vulnerabilitiesOverTime);
   } catch (error) {
-    console.error('Error fetching vulnerabilities over time:', error);
+    // console.error('Error fetching vulnerabilities over time:', error);
     res.status(500).send('Error fetching vulnerabilities over time');
   }
 });
@@ -615,13 +558,13 @@ router.get('/cwe-breakdown', authenticate, async (req, res) => {
   try {
     const cweData = await Vulnerability.aggregate([
       { $unwind: '$weaknesses' },
-      { $group: { _id: '$weaknesses.description', count: { $sum: 1 } } },
+      { $group: { _id: '$weaknesses.description.value', count: { $sum: 1 } } },
       { $project: { _id: 0, cwe: '$_id', count: 1 } },
       { $sort: { count: -1 } }
     ]);
     res.json(cweData);
   } catch (error) {
-    console.error('Error fetching CWE breakdown:', error);
+    // console.error('Error fetching CWE breakdown:', error);
     res.status(500).send('Error fetching CWE breakdown');
   }
 });
@@ -635,7 +578,7 @@ router.get('/vulnerability-summary', authenticate, async (req, res) => {
     ]);
     res.json(osData);
   } catch (error) {
-    console.error('Error fetching vulnerability distribution by OS:', error);
+    // console.error('Error fetching vulnerability distribution by OS:', error);
     res.status(500).send('Error fetching vulnerability distribution by OS');
   }
 });
@@ -646,7 +589,7 @@ router.get('/unpatched-products', authenticate, async (req, res) => {
     const unpatchedData = await Vulnerability.find({ vulnStatus: 'Unpatched' });
     res.json(unpatchedData);
   } catch (error) {
-    console.error('Error fetching unpatched vulnerabilities:', error);
+    // console.error('Error fetching unpatched vulnerabilities:', error);
     res.status(500).send('Error fetching unpatched vulnerabilities');
   }
 });
@@ -660,17 +603,136 @@ router.get('/attack-vector', authenticate, async (req, res) => {
     ]);
     res.json(vectorData);
   } catch (error) {
-    console.error('Error fetching attack vector data:', error);
+    // console.error('Error fetching attack vector data:', error);
     res.status(500).send('Error fetching attack vector data');
   }
 });
 
-// Fetch impact score analysis data
 router.get('/impact-score', authenticate, async (req, res) => {
   try {
     const impactData = await Vulnerability.aggregate([
-      { $group: { _id: '$metrics.cvssMetricV2.impactScore', count: { $sum: 1 } } },
-      { $project: { _id: 0, impactScore: '$_id', count: 1 } }
+      { 
+        $facet: {
+          cvssV2: [
+            { $unwind: '$metrics.cvssMetricV2' },
+            { 
+              $group: {
+                _id: null,
+                confidentialityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV2.cvssData.confidentialityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                },
+                integrityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV2.cvssData.integrityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                },
+                availabilityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV2.cvssData.availabilityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                }
+              }
+            }
+          ],
+          cvssV3: [
+            { $unwind: '$metrics.cvssMetricV30' },
+            { 
+              $group: {
+                _id: null,
+                confidentialityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV30.cvssData.confidentialityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                },
+                integrityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV30.cvssData.integrityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                },
+                availabilityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV30.cvssData.availabilityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                }
+              }
+            }
+          ],
+          cvssV31: [
+            { $unwind: '$metrics.cvssMetricV31' },
+            { 
+              $group: {
+                _id: null,
+                confidentialityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV31.cvssData.confidentialityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                },
+                integrityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV31.cvssData.integrityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                },
+                availabilityImpact: { 
+                  $sum: { 
+                    $cond: [
+                      { $in: ['$metrics.cvssMetricV31.cvssData.availabilityImpact', ['PARTIAL', 'COMPLETE', 'NONE']] }, 
+                      1, 
+                      0 
+                    ] 
+                  } 
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        $project: {
+          confidentialityImpact: { 
+            $sum: ['$cvssV2.confidentialityImpact', '$cvssV3.confidentialityImpact', '$cvssV31.confidentialityImpact'] 
+          },
+          integrityImpact: { 
+            $sum: ['$cvssV2.integrityImpact', '$cvssV3.integrityImpact', '$cvssV31.integrityImpact'] 
+          },
+          availabilityImpact: { 
+            $sum: ['$cvssV2.availabilityImpact', '$cvssV3.availabilityImpact', '$cvssV31.availabilityImpact'] 
+          }
+        }
+      }
     ]);
     res.json(impactData);
   } catch (error) {
@@ -678,32 +740,175 @@ router.get('/impact-score', authenticate, async (req, res) => {
     res.status(500).send('Error fetching impact score data');
   }
 });
-
-// Fetch vulnerabilities by asset
-router.get('/asset-vulnerabilities', authenticate, async (req, res) => {
+router.get('/os-weakpoints-per-year', authenticate, async (req, res) => {
   try {
-    const assetVulnerabilityData = await Vulnerability.aggregate([
-      { $group: { _id: '$asset', count: { $sum: 1 } } },
-      { $project: { _id: 0, asset: '$_id', count: 1 } }
+    const osWeakPoints = await Vulnerability.aggregate([
+      {
+        $group: {
+          _id: {
+            year: { $year: "$published" },
+            operating_system: "$operating_system",
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id.year",
+          osCounts: {
+            $push: {
+              operating_system: "$_id.operating_system",
+              count: "$count",
+            },
+          },
+          totalCount: { $sum: "$count" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          year: "$_id",
+          osCounts: 1,
+          totalCount: 1,
+        },
+      },
+      {
+        $sort: { year: 1 },
+      },
     ]);
-    res.json(assetVulnerabilityData);
+
+    res.json(osWeakPoints);
   } catch (error) {
-    console.error('Error fetching vulnerabilities by asset:', error);
-    res.status(500).send('Error fetching vulnerabilities by asset');
+    console.error('Error fetching OS weak points per year:', error);
+    res.status(500).send('Error fetching OS weak points per year');
   }
 });
 
-// Fetch CVE details for table
-router.get('/cve-details', authenticate, async (req, res) => {
+router.get('/weak-point-by-year', authenticate, async (req, res) => {
   try {
-    const cveDetails = await Vulnerability.find({}, { cveId: 1, descriptions: 1, published: 1, lastModified: 1, cvssScore: 1 });
-    res.json(cveDetails);
+    const weakPointsByYear = await Vulnerability.aggregate([
+      {
+        $group: {
+          _id: {
+            year: { $year: { $toDate: "$published" } }, // แยกปีจากวันที่เผยแพร่
+            operating_system: "$operating_system",      // แยกระบบปฏิบัติการ
+          },
+          count: { $sum: 1 }, // นับจำนวนช่องโหว่
+        },
+      },
+      {
+        $group: {
+          _id: "$_id.year",
+          operatingSystems: {
+            $push: {
+              operating_system: "$_id.operating_system",
+              count: "$count",
+            },
+          },
+          totalCount: { $sum: "$count" }, // นับจำนวนรวมในปีนั้นๆ
+        },
+      },
+      {
+        $project: {
+          year: "$_id",
+          operating_systems: {
+            $slice: [
+              {
+                $filter: {
+                  input: "$operatingSystems",
+                  as: "os",
+                  cond: { $gt: ["$$os.count", 0] },
+                },
+              },
+              1, // แสดงระบบปฏิบัติการที่มีจำนวนสูงสุด
+            ],
+          },
+          totalCount: 1,
+        },
+      },
+      { $sort: { year: 1 } }, // เรียงตามปี
+    ]);
+
+    res.json(weakPointsByYear);
   } catch (error) {
-    console.error('Error fetching CVE details:', error);
-    res.status(500).send('Error fetching CVE details');
+    console.error('Error fetching weak points by year:', error);
+    res.status(500).send('Error fetching weak points by year');
   }
 });
 
+// Fetch the OS with the most vulnerabilities for each year
+router.get('/top-os-by-year', authenticate, async (req, res) => {
+  try {
+    const topOSByYear = await Vulnerability.aggregate([
+      {
+        $group: {
+          _id: { year: { $year: "$published" }, operating_system: "$operating_system" },
+          totalVulns: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { '_id.year': 1, totalVulns: -1 },  // Sort by year and then by number of vulnerabilities
+      },
+      {
+        $group: {
+          _id: "$_id.year",
+          topOS: { $first: "$_id.operating_system" }, // Select the OS with the most vulnerabilities in each year
+          totalVulns: { $first: "$totalVulns" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          year: "$_id",
+          operating_system: "$topOS",
+          totalVulns: "$totalVulns",
+        },
+      },
+      {
+        $sort: { year: 1 }, // Ensure the result is sorted by year
+      },
+    ]);
+
+    res.json(topOSByYear);
+  } catch (error) {
+    console.error('Error fetching top OS by year:', error);
+    res.status(500).send('Error fetching top OS by year');
+  }
+});
+
+router.get('/top-5-os-current-year', authenticate, async (req, res) => {
+  try {
+    const currentYear = new Date().getFullYear();
+
+    const top5OS = await Vulnerability.aggregate([
+      {
+        $match: {
+          published: {
+            $gte: new Date(`${currentYear}-01-01`),
+            $lt: new Date(`${currentYear + 1}-01-01`)
+          }
+        }
+      },
+      {
+        $group: {
+          _id: "$operating_system",
+          totalVulns: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { totalVulns: -1 }
+      },
+      {
+        $limit: 5
+      }
+    ]);
+
+    res.json(top5OS);
+  } catch (error) {
+    console.error('Error fetching top 5 OS:', error);
+    res.status(500).send('Error fetching top 5 OS');
+  }
+});
 
 module.exports = {
   router,

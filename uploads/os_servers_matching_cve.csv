@@ -1,0 +1,5 @@
+Device_Name,Application_Name,Operating_System,OS_Version
+Server1,App1,Windows Server 2016,10.0.14393
+Server2,App2,Linux Red Hat,8.1
+Server3,App3,Windows Server 2019,10.0.17763
+Server4,App4,Ubuntu 20.04,20.04

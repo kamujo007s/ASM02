@@ -1,4 +1,5 @@
 // routes/asset.js
+
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -9,8 +10,6 @@ const Asset = require('../models/asset');
 const { mapAssetsToCves } = require('./route');
 const xlsx = require('xlsx');
 const { body, validationResult } = require('express-validator');
-const helmet = require('helmet');
-const morgan = require('morgan');
 const authenticate = require('../middleware/authenticate');
 const Notification = require('../models/notification'); // Import Notification model
 const { getWss } = require('../websocket'); // Import getWss
@@ -44,6 +43,7 @@ const processCsv = async (filePath) => {
             application_name: row.application_name,
             operating_system: row.operating_system,
             os_version: row.os_version,
+            contact: row.contact || '',
           });
         } else {
           console.error('Invalid row detected:', row);
@@ -99,6 +99,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     const fileType = path.extname(req.file.originalname).toLowerCase();
     let assets = [];
 
+    const userId = req.user.id; // ดึง userId จาก middleware authenticate
+
     if (fileType === '.csv') {
       assets = await processCsv(req.file.path);
     } else if (fileType === '.xlsx' || fileType === '.xls') {
@@ -112,15 +114,20 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     await Asset.insertMany(assets);
+
+    const wss = getWss();
+
     for (const asset of assets) {
-      await mapAssetsToCves(asset);
+      mapAssetsToCves(asset);
+
+      // ไม่ต้องส่งข้อมูลความคืบหน้าอีกต่อไป
     }
 
-    // Send notification via WebSocket
-    const wss = getWss();
+    // ส่งการแจ้งเตือนผ่าน WebSocket
     if (wss) {
       const notificationMessage = `New assets added from file: ${req.file.originalname}`;
-      wss.broadcast(notificationMessage);
+      const notificationData = { type: 'notification', message: notificationMessage };
+      wss.broadcast(notificationData);
 
       // Save notification in database
       const notification = new Notification({ message: notificationMessage });
@@ -146,6 +153,7 @@ router.post(
     body('application_name').isString().trim().escape(),
     body('operating_system').isString().trim().escape(),
     body('os_version').isString().trim().escape(),
+    body('contact').optional().isString().trim().escape(),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -156,13 +164,18 @@ router.post(
     try {
       const newAsset = new Asset(req.body);
       await newAsset.save();
-      await mapAssetsToCves(newAsset);
+
+      const userId = req.user.id; // ดึง userId จาก middleware authenticate
+
+      // ไม่ต้องใช้ await ที่นี่ เพื่อไม่ให้บล็อกการตอบกลับ
+      mapAssetsToCves(newAsset, userId);
 
       // Send notification via WebSocket
       const wss = getWss();
       if (wss) {
         const notificationMessage = `New asset added: ${newAsset.device_name}`;
-        wss.broadcast(notificationMessage);
+        const notificationData = { type: 'notification', message: notificationMessage };
+        wss.broadcast(notificationData);
 
         // Save notification in database
         const notification = new Notification({ message: notificationMessage });

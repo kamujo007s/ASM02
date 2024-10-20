@@ -15,10 +15,12 @@ const Login = () => {
   const handleSubmit = async (values) => {
     setLoading(true);
     try {
-      const response = await axios.post('http://192.168.1.164:3012/api/auth/login', values);
+      const response = await axios.post('http://localhost:3012/api/auth/login', values);
       localStorage.setItem('token', response.data.token);
       setAuth({ token: response.data.token });
-      navigate('/manage-assets');
+      navigate('/');
+      // รีเฟรชหน้าเพื่อให้ Navbar แสดงเมนูที่ถูกต้อง
+      window.location.reload();
     } catch (error) {
       message.error('Login failed');
     } finally {

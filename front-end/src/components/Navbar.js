@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import { AuthContext } from '../context/AuthContext';
 import { NotificationContext } from '../context/NotificationContext';
+import Logo from '../pic/Logo.jpg'; // ปรับเส้นทางตามความเหมาะสม
 
 const Navbar = () => {
   const { auth, setAuth } = useContext(AuthContext);
@@ -20,41 +21,47 @@ const Navbar = () => {
     localStorage.removeItem('token');
     setAuth({ token: null });
     navigate('/login');
+    window.location.reload();
   };
 
+  // เปลี่ยนชื่อ `key` เป็น `itemKey`
   const menuItems = [
     {
       key: 'home',
-      icon: <HomeOutlined />,
-      label: <Link to="/" style={{ color: '#ffffff' }}>Home</Link>,
+      label: (
+        <Link to="/">
+          <img src={Logo} alt="Logo" style={{ width: '40px', height: '40px' }} />
+        </Link>
+      ),
+      style: { marginRight: 'auto' , padding:' 10px 0 0 0'}, // จัดให้อยู่ซ้ายมือ
     },
     {
       key: 'manage-assets',
-      icon: <DatabaseOutlined />,
-      label: <Link to="/manage-assets" style={{ color: '#ffffff' }}>Manage Assets</Link>,
+      icon: <DatabaseOutlined style={{ fontSize: '20px' }} />,
+      label: <Link to="/manage-assets" style={{ color: '#000000' }}>Manage Assets</Link>,
     },
     {
       key: 'dashboard',
-      icon: <DashboardOutlined />,
-      label: <Link to="/risk-dashboard" style={{ color: '#ffffff' }}>Dashboard</Link>,
+      icon: <DashboardOutlined style={{ fontSize: '20px' }} />,
+      label: <Link to="/risk-dashboard" style={{ color: '#000000' }}>Dashboard</Link>,
     },
     {
       key: 'notifications',
-      icon: <BellOutlined />,
+      icon: <BellOutlined style={{ fontSize: '20px' }} />,
       label: (
-        <Badge count={notifications.length} offset={[10, 0]}>
-          <span onClick={toggleVisibility} style={{ color: '#ffffff' }}>Notifications</span>
-        </Badge>
+        <span onClick={toggleVisibility} style={{ color: '#000000' }}>
+          Notifications <Badge count={notifications.length} offset={[5, -15]} />
+        </span>
       ),
     },
     auth.token ? {
       key: 'logout',
-      icon: <LogoutOutlined />,
-      label: <span onClick={handleLogout} style={{ color: '#ffffff' }}>Logout</span>,
+      icon: <LogoutOutlined style={{ fontSize: '20px' }} />,
+      label: <span onClick={handleLogout} style={{ color: '#000000' }}>Logout</span>,
     } : {
       key: 'login',
-      icon: <HomeOutlined />,
-      label: <Link to="/login" style={{ color: '#ffffff' }}>Login</Link>,
+      icon: <HomeOutlined style={{ fontSize: '20px' }} />,
+      label: <Link to="/login" style={{ color: '#000000' }}>Login</Link>,
     },
   ];
 
@@ -64,20 +71,23 @@ const Navbar = () => {
         token: {
           colorPrimary: "#1677ff",
           colorInfo: "#1677ff",
-          colorTextBase: "#ffffff",
-          colorBgBase: "#1f1f1f",
+          colorTextBase: "#000000",
+          colorBgBase: "#ffffff",
           borderRadius: 6,
           wireframe: false,
         },
       }}
     >
-      <Menu
-        mode="horizontal"
-        theme="dark"
-        style={{ backgroundColor: '#2e2e2e' }}
-        items={menuItems}
-        selectable={false}
-      />
+      <div style={{ borderBottom: '1px solid #e8e8e8', marginBottom: '10px', padding: '0 20px' }}>
+        {/* ใช้ prop `items` ของ Menu */}
+        <Menu
+          mode="horizontal"
+          theme="light"
+          style={{ backgroundColor: '#ffffff', display: 'flex', alignItems: 'center' }}
+          selectable={false}
+          items={menuItems}
+        />
+      </div>
     </ConfigProvider>
   );
 };

@@ -10,6 +10,33 @@ const https = require("https");
 const { query, validationResult } = require("express-validator");
 const authenticate = require("../middleware/authenticate");
 const { getWss } = require('../websocket'); // Import getWss
+const fs = require('fs');
+const path = require('path');
+const Criteria = require("../models/criteria");  // นำเข้าโมเดล Criteria
+
+
+// const importJsonToMongo = async () => {
+//   const filePath = path.join(__dirname, 'Criteria.json');  // ตรวจสอบว่า path ถูกต้อง
+
+//   try {
+//     const data = fs.readFileSync(filePath, 'utf8');  // อ่านข้อมูลจากไฟล์ JSON
+//     const jsonData = JSON.parse(data);  // แปลงข้อมูลจาก JSON เป็น object
+
+//     // ตรวจสอบและแมปคีย์ใน JSON ให้ตรงกับฟิลด์ของโมเดล
+//     const formattedData = jsonData.map(item => ({
+//       criteria: item.Criteria,    // ตรวจสอบให้แน่ใจว่าคีย์ใน JSON คือ 'Criteria'
+//       assetName: item['Asset Name']  // ตรวจสอบให้แน่ใจว่าคีย์ใน JSON คือ 'Asset Name'
+//     }));
+
+//     // ใช้ insertMany แบบ async/await
+//     const docs = await Criteria.insertMany(formattedData);  
+//     console.log('Data successfully inserted into MongoDB:', docs);
+//   } catch (err) {
+//     console.error('Error reading or importing JSON data:', err);
+//   }
+// };
+
+
 
 const axiosInstance = axios.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false }),
@@ -81,116 +108,172 @@ const fetchDataFromApi = async (asset, userId) => {
   if (!asset || !asset.operating_system || !asset.os_version) {
     return [];
   }
-  const { operating_system, os_version } = asset;
-  let keyword = `${operating_system}`;
+  
+  let { operating_system, os_version } = asset;
+  let keyword = `${operating_system} ${os_version}`.trim();
+
   if (keyword.toLowerCase().includes("linux")) {
-    keyword = `Red Hat ${os_version}` || `Red Hat Linux ${os_version}`;
+    keyword = `Linux ${os_version}`;
   }
-  const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(
-    keyword
-  )}`;
+  if (operating_system.toLowerCase().includes("linux")) {
+    operating_system = 'Linux';
+  }
 
-  try {
-    const response = await axiosInstance.get(url);
-    const vulnerabilities = response.data.vulnerabilities;
-
-    const totalVulnerabilities = vulnerabilities.length;
-    let processedVulnerabilities = 0;
-
-    const wss = getWss();
-
-    for (let i = 0; i < vulnerabilities.length; i += 10) {
-      const batch = vulnerabilities.slice(i, i + 10);
-
-      for (const vuln of batch) {
-        // ตรวจสอบว่า CVE มีอยู่ในฐานข้อมูลแล้วหรือไม่
-        const existingCve = await Cve.findOne({ id: vuln.cve.id });
-        if (existingCve) {
-          continue; // ถ้ามีอยู่แล้ว ข้ามการอัปเดต
-        }
-
-        const result = await Cve.updateOne(
-          { id: vuln.cve.id },
-          {
-            $set: {
-              id: vuln.cve.id,
-              sourceIdentifier: vuln.cve.sourceIdentifier || "",
-              published: vuln.cve.published || vuln.published,
-              lastModified: vuln.cve.lastModified || vuln.lastModifiedDate,
-              vulnStatus: vuln.cve.vulnStatus || "",
-              descriptions: vuln.cve.descriptions || [],
-              metrics: vuln.cve.metrics || {},
-              weaknesses: vuln.cve.weaknesses || [],
-              configurations: vuln.cve.configurations || [],
-              references: vuln.cve.references || [],
-            },
-          },
-          { upsert: true }
-        );
-
-        const cvss = getCvssScore(vuln.cve);
-        const score = cvss.score;
-        const riskLevel = getRiskLevel(score, cvss.version);
-
-        const cpeMatches =
-          vuln.cve.configurations?.flatMap((config) =>
-            config.nodes?.flatMap((node) =>
-              node.cpeMatch?.map((match) => ({
-                criteria: match.criteria,
-                matchCriteriaId: match.matchCriteriaId || "No Match ID",
-              }))
-            )
-          ) || [];
-
-        const vulnerabilityData = {
-          asset: asset._id,
-          device_name: asset.device_name,
-          application_name: asset.application_name,
-          operating_system: asset.operating_system,
-          os_version: asset.os_version,
-          cveId: vuln.cve.id,
-          published: vuln.cve.published,
-          lastModified: vuln.cve.lastModified,
-          vulnStatus: vuln.cve.vulnStatus,
-          descriptions: vuln.cve.descriptions,
-          configurations: cpeMatches,
-          riskLevel: riskLevel,
-          cvssVersion: cvss.version,
-          cvssScore: score,
-          weaknesses: vuln.cve.weaknesses,
-        };
-
-        const vulnResult = await Vulnerability.updateOne(
-          { cveId: vuln.cve.id },
-          { $set: vulnerabilityData },
-          { upsert: true }
-        );
-
-        // ส่งการแจ้งเตือนผ่าน WebSocket
-        if (wss) {
-          const notificationMessage = `New CVE of ${asset.operating_system}: ${vuln.cve.id}`;
-          const notificationData = { type: 'notification', message: notificationMessage };
-          wss.broadcast(notificationData);
-        
-          // บันทึกการแจ้งเตือนในฐานข้อมูล
-          const notification = new Notification({ message: notificationMessage });
-          await notification.save();
-        }
-
-        processedVulnerabilities++;
-      }
-
-      if (i + 10 < vulnerabilities.length) {
-        await delay(3000);
-      }
-    }
-
-    return vulnerabilities.map((vuln) => vuln.cve);
-  } catch (error) {
-    console.error(`Error fetching data for OS: ${operating_system}, Version: ${os_version}:`, error);
+  // 1. ค้นหา criteria ที่ตรงกับ operating_system เพียงอย่างเดียว
+  const osOnlyCriteria = await Criteria.findOne({
+    assetName: { $regex: new RegExp(`^${operating_system}$`, 'i') }
+  });
+  console.log('osOnlyCriteria:', osOnlyCriteria);
+  // ถ้าไม่มีผลลัพธ์จาก operating_system เพียงอย่างเดียว
+  if (!osOnlyCriteria) {
+    console.log(`No matching criteria found for operating_system: ${operating_system}`);
     return [];
   }
+
+  // 2. ค้นหา criteria ที่ตรงกับทั้ง operating_system และ os_version (สูงสุด 5 อันดับ)
+  let criteriaDocs = await Criteria.find({
+    assetName: { $regex: new RegExp(`^${keyword}$`, 'i') }
+  }).limit(5);
+  console.log('Initial criteriaDocs (exact match):', criteriaDocs);
+
+  // หากไม่มี exact match ให้ลองค้นหาด้วย partial match
+  if (criteriaDocs.length === 0) {
+    const keywordParts = keyword.split(' ').filter(Boolean);
+    const regexes = keywordParts.map(part => new RegExp(part, 'i'));
+
+    criteriaDocs = await Criteria.find({
+      $or: regexes.map(regex => ({ assetName: regex }))
+    }).limit(5);
+
+    console.log('criteriaDocs after partial match:', criteriaDocs);
+
+  }
+
+  if (criteriaDocs.length === 0) {
+    console.log(`No matching criteria found for keyword: ${keyword}`);
+    // หากไม่มี criteria สำหรับ os_version ก็ยังคงใช้แค่ osOnlyCriteria
+  }
+
+  // 3. รวม criteria ที่ได้จากการค้นหาทั้งสองขั้นตอน (1 + up to 5)
+  const allCriteria = [osOnlyCriteria, ...criteriaDocs].slice(0, 6); // จำกัดรวมสูงสุด 6 ค่า
+  console.log('All combined criteria (up to 6):', allCriteria);
+
+  const vulnerabilities = [];
+  const wss = getWss();
+  const cpeNamesUsed = []; // เก็บค่า cpeNames ที่ถูกใช้ทั้งหมด
+
+  // 4. ดึงข้อมูลจาก criterias ทั้งหมดที่หาได้
+  for (const doc of allCriteria) {
+    const cpeName = doc.criteria;
+    if (!cpeNamesUsed.includes(cpeName)) {
+      cpeNamesUsed.push(cpeName); // เก็บ cpeName ที่ใช้ดึงข้อมูล
+    }
+    const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=${encodeURIComponent(cpeName)}`;
+
+    try {
+      const response = await axiosInstance.get(url);
+      const cves = response.data.vulnerabilities;
+
+      // ประมวลผลข้อมูล CVEs
+      for (let i = 0; i < cves.length; i += 10) {
+        const batch = cves.slice(i, i + 10);
+
+        for (const vuln of batch) {
+          // ตรวจสอบว่า CVE นี้มีอยู่แล้วในฐานข้อมูลหรือไม่
+          const existingCve = await Cve.findOne({ id: vuln.cve.id });
+
+          // 5. หากยังไม่มี CVE นี้ให้เพิ่มใหม่
+          if (!existingCve) {
+            await Cve.updateOne(
+              { id: vuln.cve.id },
+              {
+                $set: {
+                  id: vuln.cve.id,
+                  sourceIdentifier: vuln.cve.sourceIdentifier || "",
+                  published: vuln.cve.published || vuln.published,
+                  lastModified: vuln.cve.lastModified || vuln.lastModifiedDate,
+                  vulnStatus: vuln.cve.vulnStatus || "",
+                  descriptions: vuln.cve.descriptions || [],
+                  metrics: vuln.cve.metrics || {},
+                  weaknesses: vuln.cve.weaknesses || [],
+                  configurations: vuln.cve.configurations || [],
+                  references: vuln.cve.references || [],
+                },
+              },
+              { upsert: true }  // ใช้ upsert เพื่ออัปเดตหรือเพิ่มใหม่
+            );
+
+            const cvss = getCvssScore(vuln.cve);
+            const score = cvss.score;
+            const riskLevel = getRiskLevel(score, cvss.version);
+
+            const cpeMatches =
+              vuln.cve.configurations?.flatMap((config) =>
+                config.nodes?.flatMap((node) =>
+                  node.cpeMatch?.map((match) => ({
+                    criteria: match.criteria,
+                    matchCriteriaId: match.matchCriteriaId || "No Match ID",
+                  }))
+                )
+              ) || [];
+
+            const vulnerabilityData = {
+              asset: asset._id,
+              device_name: asset.device_name,
+              application_name: asset.application_name,
+              operating_system: asset.operating_system,
+              os_version: asset.os_version,
+              cveId: vuln.cve.id,
+              published: vuln.cve.published,
+              lastModified: vuln.cve.lastModified,
+              vulnStatus: vuln.cve.vulnStatus,
+              descriptions: vuln.cve.descriptions,
+              configurations: cpeMatches,
+              riskLevel: riskLevel,
+              cvssVersion: cvss.version,
+              cvssScore: score,
+              weaknesses: vuln.cve.weaknesses,
+              cpeNameUsed: cpeNamesUsed, // บันทึก cpeNames ทั้งหมดที่ใช้ดึงข้อมูล
+            };
+
+            await Vulnerability.updateOne(
+              { cveId: vuln.cve.id },
+              { $set: vulnerabilityData },
+              { upsert: true }
+            );
+
+            // ตรวจสอบการแจ้งเตือนก่อนสร้างใหม่
+            const notificationMessage = `New CVE for asset ${asset.device_name}: ${vuln.cve.id}`;
+            const existingNotification = await Notification.findOne({ message: notificationMessage });
+            if (!existingNotification) {
+              if (wss) {
+                const notificationData = { type: 'notification', message: notificationMessage };
+                wss.broadcast(notificationData);
+
+                // บันทึกการแจ้งเตือนในฐานข้อมูล
+                const notification = new Notification({ message: notificationMessage });
+                await notification.save();
+              }
+            }
+          }
+        }
+
+        if (i + 10 < cves.length) {
+          await delay(3000); // ชะลอเพื่อเคารพข้อจำกัดของ API
+        }
+      }
+
+      await delay(3000); // ชะลอระหว่างการดึงข้อมูลแต่ละ cpeName
+
+    } catch (error) {
+      console.error(`Error fetching data for cpeName: ${cpeName}`, error);
+    }
+  }
+
+  return vulnerabilities;
 };
+
+
 
 const mapAssetsToCves = async (asset = null, userId) => {
   try {
@@ -230,6 +313,7 @@ const mapAssetsToCves = async (asset = null, userId) => {
           lastModified: cve.lastModified,
           cvssVersion: cvss.version,
           weaknesses: cve.weaknesses,
+          cpeNameUsed: cve.cpeNameUsed, // เพิ่มฟิลด์นี้เพื่อส่งต่อไปยัง Frontend
         };
       });
 
@@ -269,7 +353,6 @@ const mapAssetsToCves = async (asset = null, userId) => {
   }
 };
 
-
 router.get("/update", authenticate, async (req, res) => {
   try {
     const deviceName = req.query.device_name;
@@ -291,6 +374,7 @@ router.get("/update", authenticate, async (req, res) => {
     res.status(500).send("Error updating and mapping data");
   }
 });
+
 
 router.get(
   "/vulnerabilities",
@@ -914,4 +998,5 @@ module.exports = {
   router,
   fetchDataFromApi,
   mapAssetsToCves,
+  // importJsonToMongo,
 };

@@ -1,6 +1,5 @@
-// App.js
 import React, { useEffect, useContext, useRef, useState } from 'react';
-import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, theme } from 'antd';
 import VulnerabilityTable from './components/VulnerabilityTable';
 import Navbar from './components/Navbar';
@@ -8,7 +7,7 @@ import VulnerabilityDashboard from './components/VulnerabilityDashboard2';
 import ManageAssets from './components/ManageAssets';
 import Login from './components/Login';
 import Register from './components/Register';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, AuthContext } from './context/AuthContext';
 import { NotificationProvider, NotificationContext } from './context/NotificationContext';
 import PrivateRoute from './components/PrivateRoute';
 import NotificationBox from './components/NotificationBox';
@@ -16,11 +15,19 @@ import VulnerabilityDetail from "./components/VulnerabilityDetail";
 
 const AppContent = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { auth, setAuth } = useContext(AuthContext);
   const showNavbar = location.pathname !== '/login' && location.pathname !== '/register';
   const { addNotification, setNotifications } = useContext(NotificationContext);
   const wsRef = useRef(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isWebSocketOpen, setIsWebSocketOpen] = useState(false);
+
+  useEffect(() => {
+    if (!auth.token) {
+      navigate('/login');
+    }
+  }, [auth.token, navigate]);
 
   useEffect(() => {
     let intervalId;

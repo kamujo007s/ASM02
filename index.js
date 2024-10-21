@@ -44,6 +44,7 @@ app.use('/api/assets', authenticateMiddleware, assetRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/cve', authenticateMiddleware, cveRoutes);
 
+
 // Use the rate limiter for the notifications route
 app.use('/cve/notifications', notificationsLimiter, authenticateMiddleware, async (req, res) => {
   const cachedNotifications = myCache.get('notifications');
@@ -66,7 +67,6 @@ const server = http.createServer(app);
 
 // Initialize WebSocket server
 initializeWebSocket(server);
-
 // Schedule tasks
 const fetchCveDataOnStart = async () => {
   try {
@@ -135,4 +135,5 @@ server.listen(PORT, '0.0.0.0', async () => {
   
   // Fetch initial CVE data
   await fetchCveDataOnStart();
+
 });

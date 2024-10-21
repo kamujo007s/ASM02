@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Menu, ConfigProvider, Badge } from 'antd';
 import {
@@ -10,12 +10,15 @@ import {
 } from '@ant-design/icons';
 import { AuthContext } from '../context/AuthContext';
 import { NotificationContext } from '../context/NotificationContext';
-import Logo from '../pic/Logo.jpg'; // ปรับเส้นทางตามความเหมาะสม
+import Logo from '../pic/Logo.jpg'; // Adjust the path as necessary
 
 const Navbar = () => {
   const { auth, setAuth } = useContext(AuthContext);
   const { notifications, toggleVisibility } = useContext(NotificationContext);
   const navigate = useNavigate();
+  
+  // ใช้ useRef แทนการใช้ findDOMNode
+  const menuRef = useRef(null);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -24,17 +27,7 @@ const Navbar = () => {
     window.location.reload();
   };
 
-  // เปลี่ยนชื่อ `key` เป็น `itemKey`
   const menuItems = [
-    {
-      key: 'home',
-      label: (
-        <Link to="/">
-          <img src={Logo} alt="Logo" style={{ width: '40px', height: '40px' }} />
-        </Link>
-      ),
-      style: { marginRight: 'auto' , padding:' 10px 0 0 0'}, // จัดให้อยู่ซ้ายมือ
-    },
     {
       key: 'manage-assets',
       icon: <DatabaseOutlined style={{ fontSize: '20px' }} />,
@@ -78,15 +71,30 @@ const Navbar = () => {
         },
       }}
     >
-      <div style={{ borderBottom: '1px solid #e8e8e8', marginBottom: '10px', padding: '0 20px' }}>
-        {/* ใช้ prop `items` ของ Menu */}
+      <div style={{ borderBottom: '1px solid #e8e8e8', marginBottom: '20px', padding: '0 20px' }}>
         <Menu
+          ref={menuRef} // ใช้ ref กับ Menu
           mode="horizontal"
           theme="light"
-          style={{ backgroundColor: '#ffffff', display: 'flex', alignItems: 'center' }}
+          style={{ backgroundColor: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           selectable={false}
-          items={menuItems}
-        />
+        >
+          {/* โลโก้ทางซ้าย */}
+          <Menu.Item key="home" style={{ marginRight: 'auto' }}>
+            <Link to="/">
+              <img src={Logo} alt="Logo" style={{ width: '40px', height: '40px' }} />
+            </Link>
+          </Menu.Item>
+
+          {/* เมนูทางขวา */}
+          <div style={{ display: 'flex' }}>
+            {menuItems.map(item => (
+              <Menu.Item key={item.key} icon={item.icon}>
+                {item.label}
+              </Menu.Item>
+            ))}
+          </div>
+        </Menu>
       </div>
     </ConfigProvider>
   );

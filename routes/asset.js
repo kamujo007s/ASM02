@@ -30,26 +30,36 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// Helper function to process CSV
 const processCsv = async (filePath) => {
   return new Promise((resolve, reject) => {
     const assets = [];
+    let isFirstRow = true;
+    
     fs.createReadStream(filePath)
       .pipe(csvParser())
       .on('data', (row) => {
+        if (isFirstRow) {
+          // Log headers for debugging
+          console.log('CSV Headers:', Object.keys(row));
+          isFirstRow = false;
+        }
+        
+        console.log('Processing row:', row); // Log each row for debugging
+
         if (row.device_name && row.application_name && row.operating_system && row.os_version) {
           assets.push({
             device_name: row.device_name,
             application_name: row.application_name,
             operating_system: row.operating_system,
             os_version: row.os_version,
-            contact: row.contact || '',
+            contact: row.contact || 'N/A',
           });
         } else {
-          console.error('Invalid row detected:', row);
+          console.error('Invalid row detected (missing required fields):', row);
         }
       })
       .on('end', () => {
+        console.log('Total assets processed:', assets.length); // Log the total assets found
         if (assets.length === 0) {
           reject(new Error('No valid assets found in the CSV file.'));
         } else {
@@ -61,6 +71,7 @@ const processCsv = async (filePath) => {
       });
   });
 };
+
 
 const processExcel = async (filePath) => {
   const workbook = xlsx.readFile(filePath);
@@ -93,7 +104,6 @@ const processExcel = async (filePath) => {
 // Middleware for authentication
 router.use(authenticate);
 
-// Route to handle file upload
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {
     const fileType = path.extname(req.file.originalname).toLowerCase();
@@ -118,9 +128,11 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     const wss = getWss();
 
     for (const asset of assets) {
-      mapAssetsToCves(asset);
-
-      // ไม่ต้องส่งข้อมูลความคืบหน้าอีกต่อไป
+      try {
+        await mapAssetsToCves(asset);
+      } catch (error) {
+        console.error('Error mapping CVEs:', error);
+      }
     }
 
     // ส่งการแจ้งเตือนผ่าน WebSocket

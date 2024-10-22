@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { AuthContext } from '../context/AuthContext';
 import { NotificationContext } from '../context/NotificationContext';
-import Logo from '../pic/Logo.jpg'; // Adjust the path as necessary
+import Logo from '../pic/ASM CVE-2.png'; // Adjust the path as necessary
 
 const Navbar = () => {
   const { auth, setAuth } = useContext(AuthContext);
@@ -71,7 +71,7 @@ const Navbar = () => {
         },
       }}
     >
-      <div style={{ borderBottom: '1px solid #e8e8e8', marginBottom: '20px', padding: '0 20px' }}>
+      <div style={{ borderBottom: '1px solid #e8e8e8', marginBottom: '0px', padding: '0 20px' }}>
         <Menu
           ref={menuRef} // ใช้ ref กับ Menu
           mode="horizontal"
@@ -82,7 +82,7 @@ const Navbar = () => {
           {/* โลโก้ทางซ้าย */}
           <Menu.Item key="home" style={{ marginRight: 'auto' }}>
             <Link to="/">
-              <img src={Logo} alt="Logo" style={{ width: '40px', height: '40px' }} />
+              <img src={Logo} alt="Logo" style={{height: '40px' , width:'100%'}} />
             </Link>
           </Menu.Item>
 

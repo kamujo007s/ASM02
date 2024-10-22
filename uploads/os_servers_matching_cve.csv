@@ -1,4 +1,4 @@
-Device_Name,Application_Name,Operating_System,OS_Version
+device_name,application_name,operating_system,os_version,contact
 Server1,App1,Windows Server 2016,10.0.14393
 Server2,App2,Linux Red Hat,8.1
 Server3,App3,Windows Server 2019,10.0.17763

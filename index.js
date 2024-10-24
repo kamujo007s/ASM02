@@ -64,6 +64,7 @@ app.use('/cve/notifications', notificationsLimiter, authenticateMiddleware, asyn
 
 // Create HTTP server
 const server = http.createServer(app);
+
 // Initialize WebSocket server
 initializeWebSocket(server);
 // Schedule tasks

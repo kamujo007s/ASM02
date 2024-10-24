@@ -13,8 +13,7 @@ const { getWss } = require('../websocket'); // Import getWss
 const fs = require('fs');
 const path = require('path');
 const Criteria = require("../models/criteria");  // นำเข้าโมเดล Criteria
-const OSFormat = require('../models/osformat');  // นำเข้าโมเดล OS Format
-const stringSimilarity = require('string-similarity');
+
 
 // const importJsonToMongo = async () => {
 //   const filePath = path.join(__dirname, 'Criteria.json');  // ตรวจสอบว่า path ถูกต้อง
@@ -48,6 +47,7 @@ const axiosInstance = axios.create({
   }
 });
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getCvssScore = (cve) => {
   if (
@@ -103,95 +103,86 @@ const getRiskLevel = (score, version) => {
   return "Unknown";
 };
 
-const fetchDataFromApi = async (asset, userId, retries = 3, delayTime = 3000) => {
+// Helper functions
+const fetchDataFromApi = async (asset, userId) => {
   if (!asset || !asset.operating_system || !asset.os_version) {
     return [];
   }
-
+  
   let { operating_system, os_version } = asset;
   let keyword = `${operating_system} ${os_version}`.trim();
 
-  // 1. Fetch all OS formats from MongoDB
-  const osFormats = await OSFormat.find().lean();
-  const osFormatNames = osFormats.map(format => format.name); // All OS names
-
-  // 2. Use Fuzzy Matching to find the closest OS format
-  const bestMatch = stringSimilarity.findBestMatch(operating_system, osFormatNames);
-  console.log('Best match:', bestMatch);
-
-  if (bestMatch.bestMatch.rating < 0.4) { // Use a 0.4 threshold for matching
-    console.log(`No close match found for OS: ${operating_system}`);
-    return [];
+  if (keyword.toLowerCase().includes("linux")) {
+    keyword = `Redhat Linux ${os_version}`;
+  }
+  if (operating_system.toLowerCase().includes("linux")) {
+    operating_system = 'Redhat Linux';
   }
 
-  const matchedOSFormat = bestMatch.bestMatch.target;
-  console.log(`Best matched OS format: ${matchedOSFormat}`);
-
-  // 3. Use matchedOSFormat to find Criteria
+  // 1. ค้นหา criteria ที่ตรงกับ operating_system เพียงอย่างเดียว
   const osOnlyCriteria = await Criteria.findOne({
-    assetName: { $regex: new RegExp(`^${matchedOSFormat}$`, 'i') }
+    assetName: { $regex: new RegExp(`^${operating_system}$`, 'i') }
   });
-
   console.log('osOnlyCriteria:', osOnlyCriteria);
+  // ถ้าไม่มีผลลัพธ์จาก operating_system เพียงอย่างเดียว
   if (!osOnlyCriteria) {
-    console.log(`No matching criteria found for operating_system: ${matchedOSFormat}`);
+    console.log(`No matching criteria found for operating_system: ${operating_system}`);
     return [];
   }
 
-  // 4. Find criteria matching both operating_system and os_version (limit to 5 results)
+  // 2. ค้นหา criteria ที่ตรงกับทั้ง operating_system และ os_version (สูงสุด 5 อันดับ)
   let criteriaDocs = await Criteria.find({
-    assetName: { $regex: new RegExp(`^${matchedOSFormat} ${os_version}$`, 'i') }
+    assetName: { $regex: new RegExp(`^${keyword}$`, 'i') }
   }).limit(5);
+  console.log('Initial criteriaDocs (exact match):', criteriaDocs);
+
+  // หากไม่มี exact match ให้ลองค้นหาด้วย partial match
+  if (criteriaDocs.length === 0) {
+    const keywordParts = keyword.split(' ').filter(Boolean);
+    const regexes = keywordParts.map(part => new RegExp(part, 'i'));
+
+    criteriaDocs = await Criteria.find({
+      $or: regexes.map(regex => ({ assetName: regex }))
+    }).limit(5);
+
+    console.log('criteriaDocs after partial match:', criteriaDocs);
+
+  }
 
   if (criteriaDocs.length === 0) {
-    console.log(`No matching criteria found for keyword: ${matchedOSFormat} ${os_version}`);
+    console.log(`No matching criteria found for keyword: ${keyword}`);
+    // หากไม่มี criteria สำหรับ os_version ก็ยังคงใช้แค่ osOnlyCriteria
   }
 
-  const allCriteria = [osOnlyCriteria, ...criteriaDocs].slice(0, 6); // Limit to 6 results
+  // 3. รวม criteria ที่ได้จากการค้นหาทั้งสองขั้นตอน (1 + up to 5)
+  const allCriteria = [osOnlyCriteria, ...criteriaDocs].slice(0, 6); // จำกัดรวมสูงสุด 6 ค่า
   console.log('All combined criteria (up to 6):', allCriteria);
 
   const vulnerabilities = [];
   const wss = getWss();
-  const cpeNamesUsed = []; // Store used cpeNames
+  const cpeNamesUsed = []; // เก็บค่า cpeNames ที่ถูกใช้ทั้งหมด
 
-  // Function to fetch data from the NVD API with retry logic
-  const fetchWithRetry = async (url, retries, delayTime) => {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        const response = await axios.get(url);
-        return response.data; // Return the data if successful
-      } catch (error) {
-        if (attempt < retries && error.response && error.response.status === 503) {
-          console.log(`Attempt ${attempt} failed: Service Unavailable. Retrying after ${delayTime / 1000} seconds...`);
-          await delay(delayTime); // Delay before retrying
-        } else {
-          console.error(`Error fetching data after ${retries} attempts:`, error);
-          throw error; // Throw the error if all retries fail
-        }
-      }
-    }
-  };
-
-  // 5. Fetch data from all found criteria
+  // 4. ดึงข้อมูลจาก criterias ทั้งหมดที่หาได้
   for (const doc of allCriteria) {
     const cpeName = doc.criteria;
     if (!cpeNamesUsed.includes(cpeName)) {
-      cpeNamesUsed.push(cpeName); // Track used cpeNames
+      cpeNamesUsed.push(cpeName); // เก็บ cpeName ที่ใช้ดึงข้อมูล
     }
     const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=${encodeURIComponent(cpeName)}`;
 
     try {
-      const responseData = await fetchWithRetry(url, retries, delayTime);
-      const cves = responseData.vulnerabilities;
+      const response = await axiosInstance.get(url);
+      const cves = response.data.vulnerabilities;
 
-      // Process CVE data
+      // ประมวลผลข้อมูล CVEs
       for (let i = 0; i < cves.length; i += 10) {
         const batch = cves.slice(i, i + 10);
 
         for (const vuln of batch) {
-          // Check if the CVE already exists in the database
+          // ตรวจสอบว่า CVE นี้มีอยู่แล้วในฐานข้อมูลหรือไม่
           const existingCve = await Cve.findOne({ id: vuln.cve.id });
 
+          // 5. หากยังไม่มี CVE นี้ให้เพิ่มใหม่
           if (!existingCve) {
             await Cve.updateOne(
               { id: vuln.cve.id },
@@ -209,21 +200,22 @@ const fetchDataFromApi = async (asset, userId, retries = 3, delayTime = 3000) =>
                   references: vuln.cve.references || [],
                 },
               },
-              { upsert: true }
+              { upsert: true }  // ใช้ upsert เพื่ออัปเดตหรือเพิ่มใหม่
             );
 
             const cvss = getCvssScore(vuln.cve);
             const score = cvss.score;
             const riskLevel = getRiskLevel(score, cvss.version);
 
-            const cpeMatches = vuln.cve.configurations?.flatMap((config) =>
-              config.nodes?.flatMap((node) =>
-                node.cpeMatch?.map((match) => ({
-                  criteria: match.criteria,
-                  matchCriteriaId: match.matchCriteriaId || "No Match ID",
-                }))
-              )
-            ) || [];
+            const cpeMatches =
+              vuln.cve.configurations?.flatMap((config) =>
+                config.nodes?.flatMap((node) =>
+                  node.cpeMatch?.map((match) => ({
+                    criteria: match.criteria,
+                    matchCriteriaId: match.matchCriteriaId || "No Match ID",
+                  }))
+                )
+              ) || [];
 
             const vulnerabilityData = {
               asset: asset._id,
@@ -241,7 +233,7 @@ const fetchDataFromApi = async (asset, userId, retries = 3, delayTime = 3000) =>
               cvssVersion: cvss.version,
               cvssScore: score,
               weaknesses: vuln.cve.weaknesses,
-              cpeNameUsed: cpeNamesUsed,
+              cpeNameUsed: cpeNamesUsed, // บันทึก cpeNames ทั้งหมดที่ใช้ดึงข้อมูล
             };
 
             await Vulnerability.updateOne(
@@ -250,7 +242,7 @@ const fetchDataFromApi = async (asset, userId, retries = 3, delayTime = 3000) =>
               { upsert: true }
             );
 
-            // Create notification if necessary
+            // ตรวจสอบการแจ้งเตือนก่อนสร้างใหม่
             const notificationMessage = `New CVE for asset ${asset.device_name}: ${vuln.cve.id}`;
             const existingNotification = await Notification.findOne({ message: notificationMessage });
             if (!existingNotification) {
@@ -258,6 +250,7 @@ const fetchDataFromApi = async (asset, userId, retries = 3, delayTime = 3000) =>
                 const notificationData = { type: 'notification', message: notificationMessage };
                 wss.broadcast(notificationData);
 
+                // บันทึกการแจ้งเตือนในฐานข้อมูล
                 const notification = new Notification({ message: notificationMessage });
                 await notification.save();
               }
@@ -266,11 +259,11 @@ const fetchDataFromApi = async (asset, userId, retries = 3, delayTime = 3000) =>
         }
 
         if (i + 10 < cves.length) {
-          await delay(3000); // Delay to respect API rate limits
+          await delay(3000); // ชะลอเพื่อเคารพข้อจำกัดของ API
         }
       }
 
-      await delay(3000); // Delay between each cpeName request
+      await delay(3000); // ชะลอระหว่างการดึงข้อมูลแต่ละ cpeName
 
     } catch (error) {
       console.error(`Error fetching data for cpeName: ${cpeName}`, error);
@@ -279,9 +272,6 @@ const fetchDataFromApi = async (asset, userId, retries = 3, delayTime = 3000) =>
 
   return vulnerabilities;
 };
-
-// Helper function to delay execution (for rate-limiting)
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 
 

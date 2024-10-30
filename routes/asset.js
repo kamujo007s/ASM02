@@ -13,6 +13,7 @@ const { body, validationResult } = require('express-validator');
 const authenticate = require('../middleware/authenticate');
 const Notification = require('../models/notification'); // Import Notification model
 const { getWss } = require('../websocket'); // Import getWss
+const logger = require('../logger'); // เพิ่มการนำเข้า Logger
 
 // Config Multer for file upload
 const storage = multer.diskStorage({
@@ -40,11 +41,11 @@ const processCsv = async (filePath) => {
       .on('data', (row) => {
         if (isFirstRow) {
           // Log headers for debugging
-          console.log('CSV Headers:', Object.keys(row));
+          logger.info('CSV Headers: %o', Object.keys(row));
           isFirstRow = false;
         }
         
-        console.log('Processing row:', row); // Log each row for debugging
+        logger.info('Processing row: %o', row); // Log each row for debugging
 
         if (row.device_name && row.application_name && row.operating_system && row.os_version) {
           assets.push({
@@ -52,14 +53,14 @@ const processCsv = async (filePath) => {
             application_name: row.application_name,
             operating_system: row.operating_system,
             os_version: row.os_version,
-            contact: row.contact || 'N/A',
+            contact: row.contact || ' ',
           });
         } else {
-          console.error('Invalid row detected (missing required fields):', row);
+          logger.warn('Invalid row detected (missing required fields): %o', row);
         }
       })
       .on('end', () => {
-        console.log('Total assets processed:', assets.length); // Log the total assets found
+        logger.info('Total assets processed: %d', assets.length); // Log the total assets found
         if (assets.length === 0) {
           reject(new Error('No valid assets found in the CSV file.'));
         } else {
@@ -72,7 +73,6 @@ const processCsv = async (filePath) => {
   });
 };
 
-
 const processExcel = async (filePath) => {
   const workbook = xlsx.readFile(filePath);
   const sheetName = workbook.SheetNames[0];
@@ -82,7 +82,7 @@ const processExcel = async (filePath) => {
     const { Device_Name, Application_Name, Operating_System, OS_Version } = row;
 
     if (!Device_Name || !Application_Name || !Operating_System || !OS_Version) {
-      console.error('Missing required fields in row:', row);
+      logger.warn('Missing required fields in row: %o', row);
       return null;
     }
 
@@ -129,9 +129,16 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     for (const asset of assets) {
       try {
+        logger.info(`Processing asset: ${asset.device_name}, OS: ${asset.operating_system} ${asset.os_version}`);
+        // ส่งข้อมูลความคืบหน้าผ่าน WebSocket
+        if (wss) {
+          const progressMessage = `Processing asset: ${asset.device_name}, OS: ${asset.operating_system} ${asset.os_version}`;
+          const progressData = { type: 'progress', message: progressMessage };
+          wss.broadcast(progressData);
+        }
         await mapAssetsToCves(asset);
       } catch (error) {
-        console.error('Error mapping CVEs:', error);
+        logger.error('Error mapping CVEs: %o', error);
       }
     }
 
@@ -148,7 +155,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     res.status(200).send('File uploaded and assets added successfully');
   } catch (error) {
-    console.error('Error uploading file:', error);
+    logger.error('Error uploading file: %o', error);
     res.status(500).send('Server error during file upload');
   } finally {
     if (req.file && fs.existsSync(req.file.path)) {
@@ -170,6 +177,7 @@ router.post(
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      logger.warn('Validation errors: %o', errors.array());
       return res.status(400).json({ errors: errors.array() });
     }
 
@@ -196,7 +204,7 @@ router.post(
 
       res.status(201).send(newAsset);
     } catch (error) {
-      console.error('Error adding asset manually:', error);
+      logger.error('Error adding asset manually: %o', error);
       res.status(500).send('Server error during asset addition');
     }
   }

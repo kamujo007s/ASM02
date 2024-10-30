@@ -1,8 +1,11 @@
-// models/osformat.js
-const mongoose = require("mongoose");
+// models/osformats.js
+const mongoose = require('mongoose');
 
-const OSFormatSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-});
+const osFormatSchema = new mongoose.Schema({
+  original: { type: String, required: true },
+  standard: { type: String, required: true },
+  // เพิ่มฟิลด์อื่นๆ ตามต้องการ
+}, { timestamps: true });
 
-module.exports = mongoose.model("OSFormat", OSFormatSchema);
+const OsFormat = mongoose.model('OsFormat', osFormatSchema);
+module.exports = OsFormat;

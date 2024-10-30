@@ -1,4 +1,5 @@
-import React, { useContext, useRef } from 'react';
+// Navbar.js
+import React, { useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Menu, ConfigProvider, Badge } from 'antd';
 import {
@@ -10,15 +11,12 @@ import {
 } from '@ant-design/icons';
 import { AuthContext } from '../context/AuthContext';
 import { NotificationContext } from '../context/NotificationContext';
-import Logo from '../pic/ASM CVE-2.png'; // Adjust the path as necessary
+import Logo from '../pic/ASM CVE-2.png'; // ปรับเส้นทางตามความเหมาะสม
 
 const Navbar = () => {
   const { auth, setAuth } = useContext(AuthContext);
   const { notifications, toggleVisibility } = useContext(NotificationContext);
   const navigate = useNavigate();
-  
-  // ใช้ useRef แทนการใช้ findDOMNode
-  const menuRef = useRef(null);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -27,7 +25,19 @@ const Navbar = () => {
     window.location.reload();
   };
 
+  const isLoggedIn = auth && auth.token;
+
+  // รวมโลโก้และเมนูเข้าไปใน items
   const menuItems = [
+    {
+      key: 'home',
+      label: (
+        <Link to="/">
+          <img src={Logo} alt="Logo" style={{ height: '40px', width: '100%' }} />
+        </Link>
+      ),
+      style: { marginRight: 'auto' },
+    },
     {
       key: 'manage-assets',
       icon: <DatabaseOutlined style={{ fontSize: '20px' }} />,
@@ -47,7 +57,7 @@ const Navbar = () => {
         </span>
       ),
     },
-    auth.token ? {
+    isLoggedIn ? {
       key: 'logout',
       icon: <LogoutOutlined style={{ fontSize: '20px' }} />,
       label: <span onClick={handleLogout} style={{ color: '#000000' }}>Logout</span>,
@@ -73,28 +83,12 @@ const Navbar = () => {
     >
       <div style={{ borderBottom: '1px solid #e8e8e8', marginBottom: '0px', padding: '0 20px' }}>
         <Menu
-          ref={menuRef} // ใช้ ref กับ Menu
           mode="horizontal"
           theme="light"
-          style={{ backgroundColor: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+          style={{ backgroundColor: '#ffffff', display: 'flex', alignItems: 'center' }}
           selectable={false}
-        >
-          {/* โลโก้ทางซ้าย */}
-          <Menu.Item key="home" style={{ marginRight: 'auto' }}>
-            <Link to="/">
-              <img src={Logo} alt="Logo" style={{height: '40px' , width:'100%'}} />
-            </Link>
-          </Menu.Item>
-
-          {/* เมนูทางขวา */}
-          <div style={{ display: 'flex' }}>
-            {menuItems.map(item => (
-              <Menu.Item key={item.key} icon={item.icon}>
-                {item.label}
-              </Menu.Item>
-            ))}
-          </div>
-        </Menu>
+          items={menuItems} // ใช้ items แทน children
+        />
       </div>
     </ConfigProvider>
   );

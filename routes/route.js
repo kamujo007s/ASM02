@@ -13,30 +13,8 @@ const { getWss } = require('../websocket'); // Import getWss
 const fs = require('fs');
 const path = require('path');
 const Criteria = require("../models/criteria");  // นำเข้าโมเดล Criteria
-
-
-// const importJsonToMongo = async () => {
-//   const filePath = path.join(__dirname, 'Criteria.json');  // ตรวจสอบว่า path ถูกต้อง
-
-//   try {
-//     const data = fs.readFileSync(filePath, 'utf8');  // อ่านข้อมูลจากไฟล์ JSON
-//     const jsonData = JSON.parse(data);  // แปลงข้อมูลจาก JSON เป็น object
-
-//     // ตรวจสอบและแมปคีย์ใน JSON ให้ตรงกับฟิลด์ของโมเดล
-//     const formattedData = jsonData.map(item => ({
-//       criteria: item.Criteria,    // ตรวจสอบให้แน่ใจว่าคีย์ใน JSON คือ 'Criteria'
-//       assetName: item['Asset Name']  // ตรวจสอบให้แน่ใจว่าคีย์ใน JSON คือ 'Asset Name'
-//     }));
-
-//     // ใช้ insertMany แบบ async/await
-//     const docs = await Criteria.insertMany(formattedData);  
-//     console.log('Data successfully inserted into MongoDB:', docs);
-//   } catch (err) {
-//     console.error('Error reading or importing JSON data:', err);
-//   }
-// };
-
-
+const OsFormat = require("../models/osformat");  // นำเข้าโมเดล OsFormat
+const logger = require('../logger');
 
 const axiosInstance = axios.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false }),
@@ -112,18 +90,85 @@ const fetchDataFromApi = async (asset, userId) => {
   let { operating_system, os_version } = asset;
   let keyword = `${operating_system} ${os_version}`.trim();
 
-  if (keyword.toLowerCase().includes("linux")) {
-    keyword = `Redhat Linux ${os_version}`;
+  // ดึงข้อมูลจากฐานข้อมูลและเพิ่ม aliases
+  let formats = await OsFormat.find().lean();
+
+  // เพิ่ม aliases ถ้าไม่มีอยู่แล้ว
+  formats = formats.map(format => ({
+    ...format,
+    aliases: format.aliases || []
+  }));
+
+  // ตัวอย่างการเพิ่ม aliases สำหรับ Redhat Linux
+  formats.push({
+    original: 'Redhat Linux',
+    standard: 'Redhat Linux',
+    aliases: ['Red Hat Linux']
+  });
+
+  // จัดเรียง formats ตามความเฉพาะเจาะจง
+  formats.sort((a, b) => {
+    const aLength = a.original ? a.original.split(' ').length : 0;
+    const bLength = b.original ? b.original.split(' ').length : 0;
+    if (aLength !== bLength) {
+      return bLength - aLength; // จัดเรียงตามจำนวนคำจากมากไปน้อย
+    }
+    const aStandardLength = a.standard ? a.standard.length : 0;
+    const bStandardLength = b.standard ? b.standard.length : 0;
+    return bStandardLength - aStandardLength; // ถ้าจำนวนคำเท่ากัน จัดเรียงตามความยาวของ standard
+  });
+  // ปรับปรุงฟังก์ชันการจับคู่
+  function containsAllKeywords(keyword, original, aliases = []) {
+    const keywordWords = keyword.toLowerCase().split(/\s+/);
+
+    const originalWordsList = [original.toLowerCase(), ...aliases.map(alias => alias.toLowerCase())].map(str => str.split(/\s+/));
+
+    return originalWordsList.some(originalWords => {
+      // สร้างสำเนาของ keywordWordCounts สำหรับแต่ละ originalWords
+      const keywordWordCounts = {};
+      for (const word of keywordWords) {
+        keywordWordCounts[word] = (keywordWordCounts[word] || 0) + 1;
+      }
+
+      for (const word of originalWords) {
+        if (!keywordWordCounts[word]) {
+          return false;
+        }
+        keywordWordCounts[word]--;
+      }
+      return true;
+    });
   }
-  if (operating_system.toLowerCase().includes("linux")) {
-    operating_system = 'Redhat Linux';
+
+  // แปลง keyword และ operating_system เป็นตัวพิมพ์เล็ก
+  let originalKeyword = keyword.toLowerCase();
+  let originalOS = operating_system.toLowerCase();
+
+  // กำหนดตัวแปรเริ่มต้น
+  let found = false;
+
+  // วนลูปผ่าน formats
+  for (const format of formats) {
+    if (containsAllKeywords(originalKeyword, format.original.toLowerCase(), format.aliases)) {
+      keyword = `${format.standard} ${os_version}`.trim();
+      operating_system = format.standard;
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    keyword = `${keyword} ${os_version}`.trim();
+    // operating_system ยังคงค่าเดิม
   }
 
   // 1. ค้นหา criteria ที่ตรงกับ operating_system เพียงอย่างเดียว
   const osOnlyCriteria = await Criteria.findOne({
     assetName: { $regex: new RegExp(`^${operating_system}$`, 'i') }
   });
+
   console.log('osOnlyCriteria:', osOnlyCriteria);
+
   // ถ้าไม่มีผลลัพธ์จาก operating_system เพียงอย่างเดียว
   if (!osOnlyCriteria) {
     console.log(`No matching criteria found for operating_system: ${operating_system}`);
@@ -134,7 +179,9 @@ const fetchDataFromApi = async (asset, userId) => {
   let criteriaDocs = await Criteria.find({
     assetName: { $regex: new RegExp(`^${keyword}$`, 'i') }
   }).limit(5);
+
   console.log('Initial criteriaDocs (exact match):', criteriaDocs);
+  
 
   // หากไม่มี exact match ให้ลองค้นหาด้วย partial match
   if (criteriaDocs.length === 0) {
@@ -145,8 +192,7 @@ const fetchDataFromApi = async (asset, userId) => {
       $or: regexes.map(regex => ({ assetName: regex }))
     }).limit(5);
 
-    console.log('criteriaDocs after partial match:', criteriaDocs);
-
+    // console.log('criteriaDocs after partial match:', criteriaDocs);
   }
 
   if (criteriaDocs.length === 0) {
@@ -156,7 +202,7 @@ const fetchDataFromApi = async (asset, userId) => {
 
   // 3. รวม criteria ที่ได้จากการค้นหาทั้งสองขั้นตอน (1 + up to 5)
   const allCriteria = [osOnlyCriteria, ...criteriaDocs].slice(0, 6); // จำกัดรวมสูงสุด 6 ค่า
-  console.log('All combined criteria (up to 6):', allCriteria);
+  // console.log('All combined criteria (up to 6):', allCriteria);
 
   const vulnerabilities = [];
   const wss = getWss();
@@ -164,6 +210,7 @@ const fetchDataFromApi = async (asset, userId) => {
 
   // 4. ดึงข้อมูลจาก criterias ทั้งหมดที่หาได้
   for (const doc of allCriteria) {
+    if (!doc) continue; // เพิ่มการตรวจสอบนี้เพื่อหลีกเลี่ยงข้อผิดพลาด
     const cpeName = doc.criteria;
     if (!cpeNamesUsed.includes(cpeName)) {
       cpeNamesUsed.push(cpeName); // เก็บ cpeName ที่ใช้ดึงข้อมูล
@@ -266,22 +313,29 @@ const fetchDataFromApi = async (asset, userId) => {
       await delay(3000); // ชะลอระหว่างการดึงข้อมูลแต่ละ cpeName
 
     } catch (error) {
-      console.error(`Error fetching data for cpeName: ${cpeName}`, error);
+      logger.error(`Error fetching data for cpeName: ${cpeName} %o`, error); // ใช้ logger.error
     }
   }
 
   return vulnerabilities;
 };
 
-
-
 const mapAssetsToCves = async (asset = null, userId) => {
   try {
     const assets = asset ? [asset] : await Asset.find();
-
     const wss = getWss();
 
     for (const assetItem of assets) {
+      // เพิ่มการบันทึก Log เพื่อแสดง Asset และ OS ที่กำลังประมวลผล
+      logger.info(`Mapping CVEs for asset: ${assetItem.device_name}, OS: ${assetItem.operating_system} ${assetItem.os_version}`);
+
+      // ส่งข้อมูลความคืบหน้าผ่าน WebSocket (ถ้าต้องการ)
+      if (wss) {
+        const progressMessage = `Mapping CVEs for asset: ${assetItem.device_name}, OS: ${assetItem.operating_system} ${assetItem.os_version}`;
+        const progressData = { type: 'progress', message: progressMessage };
+        wss.broadcast(progressData);
+      }
+
       const cves = await fetchDataFromApi(assetItem, userId);
 
       const mappedCves = cves.map((cve) => {
@@ -313,7 +367,7 @@ const mapAssetsToCves = async (asset = null, userId) => {
           lastModified: cve.lastModified,
           cvssVersion: cvss.version,
           weaknesses: cve.weaknesses,
-          cpeNameUsed: cve.cpeNameUsed, // เพิ่มฟิลด์นี้เพื่อส่งต่อไปยัง Frontend
+          cpeNameUsed: cve.cpeNameUsed,
         };
       });
 
@@ -347,11 +401,11 @@ const mapAssetsToCves = async (asset = null, userId) => {
         }
       }
     }
-
   } catch (error) {
-    console.error("Error mapping assets to CVEs:", error);
+    logger.error("Error mapping assets to CVEs: %o", error);
   }
 };
+
 
 router.get("/update", authenticate, async (req, res) => {
   try {
@@ -370,11 +424,10 @@ router.get("/update", authenticate, async (req, res) => {
     await mapAssetsToCves(asset, userId);
     res.send("Data updated and mapped successfully");
   } catch (error) {
-    console.error("Error updating and mapping data:", error);
+    logger.error("Error updating and mapping data: %o", error); // ใช้ logger.error
     res.status(500).send("Error updating and mapping data");
   }
 });
-
 
 router.get(
   "/vulnerabilities",
@@ -433,7 +486,7 @@ router.get(
 
       res.json({ mappedVulnerabilities: vulnerabilities, totalCount });
     } catch (error) {
-      // console.error("Error fetching vulnerabilities:", error);
+      logger.error("Error fetching vulnerabilities: %o", error); // ใช้ logger.error
       res.status(500).send("Error fetching data");
     }
   }
@@ -450,59 +503,11 @@ router.get('/assets/os-versions', authenticate, async (req, res) => {
 
     res.json({ uniqueOs, versionsByOs });
   } catch (error) {
-    // console.error("Error fetching OS and versions:", error);
+    logger.error("Error fetching OS and versions: %o", error); // ใช้ logger.error
     res.status(500).send("Error fetching data");
   }
 });
 
-// router.get('/vulnerability-summary', authenticate, async (req, res) => {
-//   try {
-//     const summary = await Vulnerability.aggregate([
-//       {
-//         $group: {
-//           _id: {
-//             operating_system: '$operating_system',
-//             os_version: '$os_version',  
-//             riskLevel: '$riskLevel',
-//           },
-//           count: { $sum: 1 },
-//         },
-//       },
-//       {
-//         $group: {
-//           _id: {
-//             operating_system: '$_id.operating_system',
-//             os_version: '$_id.os_version',
-//           },
-//           riskLevels: {
-//             $push: {
-//               riskLevel: '$_id.riskLevel',
-//               count: '$count',
-//             },
-//           },
-//           totalCount: { $sum: '$count' },
-//         },
-//       },
-//       {
-//         $project: {
-//           _id: 0,
-//           operating_system: '$_id.operating_system',
-//           os_version: '$_id.os_version',
-//           riskLevels: 1,
-//           totalCount: 1,
-//         },
-//       },
-//       {
-//         $sort: { 'operating_system': 1, 'os_version': 1 }
-//       }
-//     ]);
-
-//     res.json(summary);
-//   } catch (error) {
-    // console.error('Error fetching vulnerability summary:', error);
-//     res.status(500).send('Error fetching vulnerability summary');
-//   }
-// });
 
 // Add a new route to fetch a specific CVE by its ID
 router.get('/vulnerabilities/:id', authenticate, async (req, res) => {
@@ -516,7 +521,7 @@ router.get('/vulnerabilities/:id', authenticate, async (req, res) => {
 
     res.json(vulnerability);
   } catch (error) {
-    console.error('Error fetching vulnerability:', error);
+    logger.error('Error fetching vulnerability: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching vulnerability');
   }
 });
@@ -530,50 +535,6 @@ const checkMatchingCve = async (operating_system, os_version) => {
 
   return vulnerabilities.length > 0;
 };
-
-// router.get('/asset-over-time', authenticate, async (req, res) => {
-//   try {
-//     const assetOverTime = await Vulnerability.aggregate([
-//       {
-//         $group: {
-//           _id: {
-//             year: { $year: "$published" },
-//             operating_system: "$operating_system",
-//           },
-//           count: { $sum: 1 },
-//         },
-//       },
-//       {
-//         $group: {
-//           _id: "$_id.year",
-//           osCounts: {
-//             $push: {
-//               operating_system: "$_id.operating_system",
-//               count: "$count",
-//             },
-//           },
-//           totalCount: { $sum: '$count' },
-//         },
-//       },
-//       {
-//         $project: {
-//           _id: 0,
-//           year: "$_id",
-//           osCounts: 1,
-//           totalCount: 1,
-//         },
-//       },
-//       {
-//         $sort: { year: 1 },
-//       },
-//     ]);
-
-//     res.json(assetOverTime);
-//   } catch (error) {
-    // console.error('Error fetching asset data over time:', error);
-//     res.status(500).send('Error fetching asset data over time');
-//   }
-// });
 
 router.get('/assets-with-status', authenticate, async (req, res) => {
   try {
@@ -592,7 +553,7 @@ router.get('/assets-with-status', authenticate, async (req, res) => {
 
     res.json(assetWithStatus);
   } catch (error) {
-    // console.error('Error fetching assets with status:', error);
+    logger.error('Error fetching assets with status: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching assets with status');
   }
 });
@@ -602,7 +563,7 @@ router.get('/notifications', authenticate, async (req, res) => {
     const notifications = await Notification.find().sort({ createdAt: -1 });
     res.json(notifications);
   } catch (error) {
-    // console.error('Error fetching notifications:', error);
+    logger.error('Error fetching notifications: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching notifications');
   }
 });
@@ -613,7 +574,7 @@ router.get('/cvss-data', authenticate, async (req, res) => {
     const cvssData = await Vulnerability.find({}, { cvssScore: 1, riskLevel: 1, _id: 0 });
     res.json(cvssData);
   } catch (error) {
-    // console.error('Error fetching CVSS data:', error);
+    logger.error('Error fetching CVSS data: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching CVSS data');
   }
 });
@@ -632,7 +593,7 @@ router.get('/asset-over-time', authenticate, async (req, res) => {
     ]);
     res.json(vulnerabilitiesOverTime);
   } catch (error) {
-    // console.error('Error fetching vulnerabilities over time:', error);
+    logger.error('Error fetching vulnerabilities over time: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching vulnerabilities over time');
   }
 });
@@ -648,7 +609,7 @@ router.get('/cwe-breakdown', authenticate, async (req, res) => {
     ]);
     res.json(cweData);
   } catch (error) {
-    // console.error('Error fetching CWE breakdown:', error);
+    logger.error('Error fetching CWE breakdown: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching CWE breakdown');
   }
 });
@@ -662,7 +623,7 @@ router.get('/vulnerability-summary', authenticate, async (req, res) => {
     ]);
     res.json(osData);
   } catch (error) {
-    // console.error('Error fetching vulnerability distribution by OS:', error);
+    logger.error('Error fetching vulnerability distribution by OS: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching vulnerability distribution by OS');
   }
 });
@@ -673,7 +634,7 @@ router.get('/unpatched-products', authenticate, async (req, res) => {
     const unpatchedData = await Vulnerability.find({ vulnStatus: 'Unpatched' });
     res.json(unpatchedData);
   } catch (error) {
-    // console.error('Error fetching unpatched vulnerabilities:', error);
+    logger.error('Error fetching unpatched vulnerabilities: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching unpatched vulnerabilities');
   }
 });
@@ -687,7 +648,7 @@ router.get('/attack-vector', authenticate, async (req, res) => {
     ]);
     res.json(vectorData);
   } catch (error) {
-    // console.error('Error fetching attack vector data:', error);
+    logger.error('Error fetching attack vector data: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching attack vector data');
   }
 });
@@ -820,7 +781,7 @@ router.get('/impact-score', authenticate, async (req, res) => {
     ]);
     res.json(impactData);
   } catch (error) {
-    console.error('Error fetching impact score data:', error);
+    logger.error('Error fetching impact score data: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching impact score data');
   }
 });
@@ -863,7 +824,7 @@ router.get('/os-weakpoints-per-year', authenticate, async (req, res) => {
 
     res.json(osWeakPoints);
   } catch (error) {
-    console.error('Error fetching OS weak points per year:', error);
+    logger.error('Error fetching OS weak points per year: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching OS weak points per year');
   }
 });
@@ -915,7 +876,7 @@ router.get('/weak-point-by-year', authenticate, async (req, res) => {
 
     res.json(weakPointsByYear);
   } catch (error) {
-    console.error('Error fetching weak points by year:', error);
+    logger.error('Error fetching weak points by year: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching weak points by year');
   }
 });
@@ -955,7 +916,7 @@ router.get('/top-os-by-year', authenticate, async (req, res) => {
 
     res.json(topOSByYear);
   } catch (error) {
-    console.error('Error fetching top OS by year:', error);
+    logger.error('Error fetching top OS by year: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching top OS by year');
   }
 });
@@ -989,7 +950,7 @@ router.get('/top-5-os-current-year', authenticate, async (req, res) => {
 
     res.json(top5OS);
   } catch (error) {
-    console.error('Error fetching top 5 OS:', error);
+    logger.error('Error fetching top 5 OS: %o', error); // ใช้ logger.error
     res.status(500).send('Error fetching top 5 OS');
   }
 });
@@ -998,5 +959,4 @@ module.exports = {
   router,
   fetchDataFromApi,
   mapAssetsToCves,
-  // importJsonToMongo,
 };

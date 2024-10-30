@@ -16,22 +16,22 @@ import VulnerabilityDetail from "./components/VulnerabilityDetail";
 const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { auth, setAuth } = useContext(AuthContext);
+  const { auth } = useContext(AuthContext);
   const showNavbar = location.pathname !== '/login' && location.pathname !== '/register';
   const { addNotification, setNotifications } = useContext(NotificationContext);
   const wsRef = useRef(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isWebSocketOpen, setIsWebSocketOpen] = useState(false);
 
+  // ตรวจสอบการล็อกอิน
   useEffect(() => {
     if (!auth.token) {
       navigate('/login');
     }
   }, [auth.token, navigate]);
 
+  // ดึงข้อมูลการแจ้งเตือนทุก ๆ 30 วินาที
   useEffect(() => {
-    let intervalId;
-
     const fetchNotifications = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -49,7 +49,6 @@ const AppContent = () => {
         if (!response.ok) {
           if (response.status === 403) {
             console.error('Forbidden: Token is invalid or expired.');
-            clearInterval(intervalId);
           }
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -63,8 +62,16 @@ const AppContent = () => {
 
     fetchNotifications();
 
-    // แก้ไขเวลาให้เป็น 30 วินาที (30000 มิลลิวินาที)
-    intervalId = setInterval(fetchNotifications, 30000);
+    const intervalId = setInterval(fetchNotifications, 30000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [auth.token, setNotifications]);
+
+  // จัดการการเชื่อมต่อ WebSocket
+  useEffect(() => {
+    let ws;
 
     const connectWebSocket = () => {
       const token = localStorage.getItem('token');
@@ -73,7 +80,7 @@ const AppContent = () => {
         return;
       }
 
-      const ws = new WebSocket(`ws://192.168.142.180:3012/?token=${token}`);
+      ws = new WebSocket(`ws://192.168.142.180:3012/?token=${token}`);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -82,17 +89,18 @@ const AppContent = () => {
       };
 
       ws.onmessage = (event) => {
-        const notification = event.data;
-        addNotification(notification);
+        try {
+          const data = JSON.parse(event.data);
+          addNotification(data);
+        } catch (e) {
+          console.error('Error parsing WebSocket message:', e);
+        }
       };
 
       ws.onclose = (event) => {
         setIsWebSocketOpen(false);
         if (!event.wasClean && retryCount < 5) {
-          setTimeout(() => {
-            setRetryCount((prevCount) => prevCount + 1);
-            connectWebSocket();
-          }, 5000); // แก้ไขเวลาให้เป็น 5 วินาที (5000 มิลลิวินาที)
+          setRetryCount((prevCount) => prevCount + 1);
         }
       };
 
@@ -107,15 +115,26 @@ const AppContent = () => {
     }
 
     return () => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.close();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
       }
-      clearInterval(intervalId);
     };
+  }, [auth.token, isWebSocketOpen, retryCount, addNotification]);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // พยายามเชื่อมต่อใหม่เมื่อ WebSocket ปิด
+  useEffect(() => {
+    if (!isWebSocketOpen && retryCount > 0 && retryCount < 5) {
+      const timer = setTimeout(() => {
+        setRetryCount((prevCount) => prevCount - 1);
+      }, 5000);
 
+      return () => clearTimeout(timer);
+    }
+  }, [isWebSocketOpen, retryCount]);
+  // Re-render on route change
+  useEffect(() => {
+    // This effect will run on every route change
+  }, [location]);
   return (
     <>
       {showNavbar && <Navbar />}

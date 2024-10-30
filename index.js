@@ -18,6 +18,7 @@ const authenticateMiddleware = require('./middleware/authenticate');
 const rateLimit = require('express-rate-limit');
 const NodeCache = require('node-cache');
 const myCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
+require('dotenv').config();
 
 const { router: cveRoutes, fetchDataFromApi, mapAssetsToCves } = require('./routes/route');
 

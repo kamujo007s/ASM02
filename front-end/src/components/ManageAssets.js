@@ -35,9 +35,11 @@ const ManageAssets = () => {
       }
 
       if (data.type === 'notification' || data.type === 'text') {
-        // แสดงการแจ้งเตือนเมื่อได้รับข้อความ
         toast.info(data.message, { position: 'top-right' });
         addNotification(data.message);
+      } else if (data.type === 'progress') {
+        // แสดงข้อความความคืบหน้า
+        toast.info(data.message, { position: 'top-right', autoClose: false });
       }
     };
 

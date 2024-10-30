@@ -6,7 +6,7 @@ const assetSchema = new mongoose.Schema({
   application_name: { type: String, required: true },
   operating_system: { type: String, required: true },
   os_version: { type: String, required: true },
-  contact: { type: String, required: true },
+  contact: { type: String, required: false },
 }, { strict: true });
 
 const Asset = mongoose.model('Asset', assetSchema);

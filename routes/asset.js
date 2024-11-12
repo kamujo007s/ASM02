@@ -1,5 +1,4 @@
 // routes/asset.js
-
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -11,9 +10,8 @@ const { mapAssetsToCves } = require('./route');
 const xlsx = require('xlsx');
 const { body, validationResult } = require('express-validator');
 const authenticate = require('../middleware/authenticate');
-const Notification = require('../models/notification'); // Import Notification model
-const { getWss } = require('../websocket'); // Import getWss
-const logger = require('../logger'); // เพิ่มการนำเข้า Logger
+const Notification = require('../models/notification');
+const logger = require('../logger');
 
 // Config Multer for file upload
 const storage = multer.diskStorage({
@@ -29,40 +27,47 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage: storage });
+const allowedMimeTypes = ['text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'];
+
+const upload = multer({
+  storage: storage,
+  fileFilter: (req, file, cb) => {
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      return cb(new Error('Invalid file type'));
+    }
+    cb(null, true);
+  }
+});
 
 const processCsv = async (filePath) => {
   return new Promise((resolve, reject) => {
     const assets = [];
     let isFirstRow = true;
-    
+
     fs.createReadStream(filePath)
       .pipe(csvParser())
       .on('data', (row) => {
         if (isFirstRow) {
-          // Log headers for debugging
           logger.info('CSV Headers: %o', Object.keys(row));
           isFirstRow = false;
         }
-        
-        logger.info('Processing row: %o', row); // Log each row for debugging
-
+        logger.info('Processing row: %o', row);
         if (row.device_name && row.application_name && row.operating_system && row.os_version) {
           assets.push({
             device_name: row.device_name,
             application_name: row.application_name,
             operating_system: row.operating_system,
             os_version: row.os_version,
-            contact: row.contact || ' ',
+            contact: row.contact || '',
           });
         } else {
-          logger.warn('Invalid row detected (missing required fields): %o', row);
+          logger.warn('Invalid row data: %o', row);
         }
       })
       .on('end', () => {
-        logger.info('Total assets processed: %d', assets.length); // Log the total assets found
+        logger.info('Total assets processed: %d', assets.length);
         if (assets.length === 0) {
-          reject(new Error('No valid assets found in the CSV file.'));
+          reject(new Error('No valid assets found in the file'));
         } else {
           resolve(assets);
         }
@@ -73,34 +78,6 @@ const processCsv = async (filePath) => {
   });
 };
 
-const processExcel = async (filePath) => {
-  const workbook = xlsx.readFile(filePath);
-  const sheetName = workbook.SheetNames[0];
-  const worksheet = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-  const assets = worksheet.map(row => {
-    const { Device_Name, Application_Name, Operating_System, OS_Version } = row;
-
-    if (!Device_Name || !Application_Name || !Operating_System || !OS_Version) {
-      logger.warn('Missing required fields in row: %o', row);
-      return null;
-    }
-
-    return {
-      device_name: Device_Name,
-      application_name: Application_Name,
-      operating_system: Operating_System,
-      os_version: OS_Version,
-    };
-  }).filter(asset => asset !== null);
-
-  if (assets.length === 0) {
-    throw new Error('No valid assets found in the Excel file.');
-  }
-
-  return assets;
-};
-
 // Middleware for authentication
 router.use(authenticate);
 
@@ -109,12 +86,28 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     const fileType = path.extname(req.file.originalname).toLowerCase();
     let assets = [];
 
-    const userId = req.user.id; // ดึง userId จาก middleware authenticate
+    const userId = req.user.userId;
 
     if (fileType === '.csv') {
       assets = await processCsv(req.file.path);
     } else if (fileType === '.xlsx' || fileType === '.xls') {
-      assets = await processExcel(req.file.path);
+      const workbook = xlsx.readFile(req.file.path);
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = xlsx.utils.sheet_to_json(sheet);
+      jsonData.forEach(row => {
+        if (row.device_name && row.application_name && row.operating_system && row.os_version) {
+          assets.push({
+            device_name: row.device_name,
+            application_name: row.application_name,
+            operating_system: row.operating_system,
+            os_version: row.os_version,
+            contact: row.contact || '',
+          });
+        } else {
+          logger.warn('Invalid row data: %o', row);
+        }
+      });
     } else {
       return res.status(400).send('Unsupported file type');
     }
@@ -125,37 +118,26 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     await Asset.insertMany(assets);
 
-    const wss = getWss();
+    const io = req.app.get('io');
 
     for (const asset of assets) {
       try {
-        logger.info(`Processing asset: ${asset.device_name}, OS: ${asset.operating_system} ${asset.os_version}`);
-        // ส่งข้อมูลความคืบหน้าผ่าน WebSocket
-        if (wss) {
-          const progressMessage = `Processing asset: ${asset.device_name}, OS: ${asset.operating_system} ${asset.os_version}`;
-          const progressData = { type: 'progress', message: progressMessage };
-          wss.broadcast(progressData);
-        }
-        await mapAssetsToCves(asset);
+        await mapAssetsToCves(asset, userId);
       } catch (error) {
-        logger.error('Error mapping CVEs: %o', error);
+        logger.error('Error mapping asset to CVEs:', error);
       }
     }
 
-    // ส่งการแจ้งเตือนผ่าน WebSocket
-    if (wss) {
+    if (io) {
       const notificationMessage = `New assets added from file: ${req.file.originalname}`;
-      const notificationData = { type: 'notification', message: notificationMessage };
-      wss.broadcast(notificationData);
-
-      // Save notification in database
+      io.emit('notification', { type: 'notification', message: notificationMessage });
       const notification = new Notification({ message: notificationMessage });
       await notification.save();
     }
 
     res.status(200).send('File uploaded and assets added successfully');
   } catch (error) {
-    logger.error('Error uploading file: %o', error);
+    logger.error('Error uploading file:', error);
     res.status(500).send('Server error during file upload');
   } finally {
     if (req.file && fs.existsSync(req.file.path)) {
@@ -185,17 +167,16 @@ router.post(
       const newAsset = new Asset(req.body);
       await newAsset.save();
 
-      const userId = req.user.id; // ดึง userId จาก middleware authenticate
+      const userId = req.user.userId; // ดึง userId จาก middleware authenticate
 
       // ไม่ต้องใช้ await ที่นี่ เพื่อไม่ให้บล็อกการตอบกลับ
       mapAssetsToCves(newAsset, userId);
 
-      // Send notification via WebSocket
-      const wss = getWss();
-      if (wss) {
+      // Send notification via Socket.IO
+      const io = req.app.get('io');
+      if (io) {
         const notificationMessage = `New asset added: ${newAsset.device_name}`;
-        const notificationData = { type: 'notification', message: notificationMessage };
-        wss.broadcast(notificationData);
+        io.emit('notification', { type: 'notification', message: notificationMessage });
 
         // Save notification in database
         const notification = new Notification({ message: notificationMessage });
@@ -204,7 +185,7 @@ router.post(
 
       res.status(201).send(newAsset);
     } catch (error) {
-      logger.error('Error adding asset manually: %o', error);
+      logger.error('Error adding asset manually:', error);
       res.status(500).send('Server error during asset addition');
     }
   }

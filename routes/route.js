@@ -15,6 +15,8 @@ const path = require('path');
 const Criteria = require("../models/criteria");  // นำเข้าโมเดล Criteria
 const OsFormat = require("../models/osformat");  // นำเข้าโมเดล OsFormat
 const logger = require('../logger');
+const { generateMitigationAdvice } = require('../AI Reccommentation/generateMitigationAdvice'); // นำเข้าโมดูล AI
+
 
 const axiosInstance = axios.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false }),
@@ -26,6 +28,13 @@ const axiosInstance = axios.create({
 });
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// สร้างฟังก์ชันเพื่อส่งสถานะผ่าน WebSocket
+const broadcastStatus = (message) => {
+  const wss = getWss();
+  if (wss) {
+    wss.broadcast({ type: 'status', status: message });
+  }
+};
 
 const getCvssScore = (cve) => {
   if (
@@ -81,156 +90,161 @@ const getRiskLevel = (score, version) => {
   return "Unknown";
 };
 
-// Helper functions
 const fetchDataFromApi = async (asset, userId) => {
+  
+  broadcastStatus(`เริ่มประมวลผล Asset: ${asset.device_name}`);
+
   if (!asset || !asset.operating_system || !asset.os_version) {
+    logger.info('Asset ไม่มีข้อมูลที่จำเป็น');
+    broadcastStatus(`Asset ${asset.device_name} ไม่มีข้อมูลที่จำเป็น`);
+
     return [];
   }
   
   let { operating_system, os_version } = asset;
   let keyword = `${operating_system} ${os_version}`.trim();
+  
+  logger.info(`เริ่มประมวลผล Asset ด้วย operating_system: ${operating_system}, os_version: ${os_version}`);
+  broadcastStatus(`กำลังดึงข้อมูล OsFormat สำหรับ Asset: ${asset.device_name}`);
 
-  // ดึงข้อมูลจากฐานข้อมูลและเพิ่ม aliases
+  // ดึงข้อมูลจาก OsFormat
   let formats = await OsFormat.find().lean();
+  logger.info(`ดึงข้อมูล OsFormat จำนวน ${formats.length} รายการ`);
 
-  // เพิ่ม aliases ถ้าไม่มีอยู่แล้ว
-  formats = formats.map(format => ({
-    ...format,
-    aliases: format.aliases || []
-  }));
+  // แยกคำใน keyword และ operating_system
+  const keywordWords = keyword.toLowerCase().split(/\s+/);
+  const firstWord = operating_system.toLowerCase().split(/\s+/)[0];
 
-  // ตัวอย่างการเพิ่ม aliases สำหรับ Redhat Linux
-  formats.push({
-    original: 'Redhat Linux',
-    standard: 'Redhat Linux',
-    aliases: ['Red Hat Linux']
+  // กรอง formats ที่มีคำว่า "Windows" ซึ่งเป็นคำแรกของ operating_system
+  const filteredFormats = formats.filter(format => {
+    if (!format.standard) return false; // ตรวจสอบค่า null
+    const standardLower = format.standard.toLowerCase();
+    return standardLower.includes(firstWord);
+  });
+  logger.info(`กรอง formats เหลือ ${filteredFormats.length} รายการที่มีคำจาก operating_system อยู่ในข้อมูล`);
+
+  // แสดงรายการ filteredFormats ใน log
+  filteredFormats.forEach((format) => {
+    logger.info(`filteredFormats: ${format.standard}`);
   });
 
-  // จัดเรียง formats ตามความเฉพาะเจาะจง
-  formats.sort((a, b) => {
-    const aLength = a.original ? a.original.split(' ').length : 0;
-    const bLength = b.original ? b.original.split(' ').length : 0;
-    if (aLength !== bLength) {
-      return bLength - aLength; // จัดเรียงตามจำนวนคำจากมากไปน้อย
+  // ฟังก์ชันนับจำนวนคำที่ซ้ำกัน
+  function getOverlapCount(str1, str2) {
+    const words1 = str1.toLowerCase().split(/\s+/);
+    const words2 = str2.toLowerCase().split(/\s+/);
+    const set1 = new Set(words1);
+    const set2 = new Set(words2);
+    let overlap = 0;
+    for (const word of set1) {
+      if (set2.has(word)) {
+        overlap += 1;
+      }
     }
-    const aStandardLength = a.standard ? a.standard.length : 0;
-    const bStandardLength = b.standard ? b.standard.length : 0;
-    return bStandardLength - aStandardLength; // ถ้าจำนวนคำเท่ากัน จัดเรียงตามความยาวของ standard
-  });
-  // ปรับปรุงฟังก์ชันการจับคู่
-  function containsAllKeywords(keyword, original, aliases = []) {
-    const keywordWords = keyword.toLowerCase().split(/\s+/);
-
-    const originalWordsList = [original.toLowerCase(), ...aliases.map(alias => alias.toLowerCase())].map(str => str.split(/\s+/));
-
-    return originalWordsList.some(originalWords => {
-      // สร้างสำเนาของ keywordWordCounts สำหรับแต่ละ originalWords
-      const keywordWordCounts = {};
-      for (const word of keywordWords) {
-        keywordWordCounts[word] = (keywordWordCounts[word] || 0) + 1;
-      }
-
-      for (const word of originalWords) {
-        if (!keywordWordCounts[word]) {
-          return false;
-        }
-        keywordWordCounts[word]--;
-      }
-      return true;
-    });
+    return overlap;
   }
 
-  // แปลง keyword และ operating_system เป็นตัวพิมพ์เล็ก
-  let originalKeyword = keyword.toLowerCase();
-  let originalOS = operating_system.toLowerCase();
+  // เช็คคำซ้ำระหว่างแต่ละ format กับ keyword
+  let maxOverlapKeyword = 0;
+  let bestFormatKeyword = null;
 
-  // กำหนดตัวแปรเริ่มต้น
-  let found = false;
-
-  // วนลูปผ่าน formats
-  for (const format of formats) {
-    if (containsAllKeywords(originalKeyword, format.original.toLowerCase(), format.aliases)) {
-      keyword = `${format.standard} ${os_version}`.trim();
-      operating_system = format.standard;
-      found = true;
-      break;
+  for (const format of filteredFormats) {
+    const overlap = getOverlapCount(keyword, format.standard);
+    logger.info(`จำนวนคำซ้ำระหว่าง keyword "${keyword}" และชื่อ "${format.standard}" คือ ${overlap}`);
+    if (overlap > maxOverlapKeyword) {
+      maxOverlapKeyword = overlap;
+      bestFormatKeyword = format;
     }
   }
 
-  if (!found) {
-    keyword = `${keyword} ${os_version}`.trim();
-    // operating_system ยังคงค่าเดิม
+  if (bestFormatKeyword) {
+    logger.info(`พบ format ที่ดีที่สุดสำหรับ keyword คือ "${bestFormatKeyword.standard}" มีคำซ้ำ ${maxOverlapKeyword}`);
+    keyword = `${bestFormatKeyword.standard} ${os_version}`.trim();
+    operating_system = bestFormatKeyword.standard;
+  } else {
+    logger.info('ไม่พบ format ที่เหมาะสมสำหรับ keyword');
   }
 
-  // 1. ค้นหา criteria ที่ตรงกับ operating_system เพียงอย่างเดียว
-  const osOnlyCriteria = await Criteria.findOne({
+  // ค้นหา criteria ที่ตรงกับ operating_system อย่างเดียว
+  logger.info(`ค้นหา criteria ที่ตรงกับ operating_system: "${operating_system}"`);
+  let osOnlyCriteria = await Criteria.findOne({
     assetName: { $regex: new RegExp(`^${operating_system}$`, 'i') }
   });
+  logger.info(`osOnlyCriteria: ${osOnlyCriteria ? 'พบ' : 'ไม่พบ'}`);
 
-  console.log('osOnlyCriteria:', osOnlyCriteria);
+  let criteriaDocs = [];
 
-  // ถ้าไม่มีผลลัพธ์จาก operating_system เพียงอย่างเดียว
+  // ถ้าไม่พบ criteria สำหรับ operating_system ให้ประมวลผลด้วย keyword
   if (!osOnlyCriteria) {
-    console.log(`No matching criteria found for operating_system: ${operating_system}`);
-    return [];
-  }
+    logger.info(`ไม่พบ criteria ที่ตรงกับ operating_system: "${operating_system}"`);
 
-  // 2. ค้นหา criteria ที่ตรงกับทั้ง operating_system และ os_version (สูงสุด 5 อันดับ)
-  let criteriaDocs = await Criteria.find({
-    assetName: { $regex: new RegExp(`^${keyword}$`, 'i') }
-  }).limit(5);
-
-  console.log('Initial criteriaDocs (exact match):', criteriaDocs);
-  
-
-  // หากไม่มี exact match ให้ลองค้นหาด้วย partial match
-  if (criteriaDocs.length === 0) {
-    const keywordParts = keyword.split(' ').filter(Boolean);
-    const regexes = keywordParts.map(part => new RegExp(part, 'i'));
-
+    // ค้นหา criteria ที่ตรงกับ keyword
+    logger.info(`ค้นหา criteria ที่ตรงกับ keyword: "${keyword}"`);
     criteriaDocs = await Criteria.find({
-      $or: regexes.map(regex => ({ assetName: regex }))
+      assetName: { $regex: new RegExp(`^${keyword}$`, 'i') }
     }).limit(5);
+    logger.info(`พบ criteria จำนวน ${criteriaDocs.length} รายการที่ตรงกับ keyword`);
 
-    // console.log('criteriaDocs after partial match:', criteriaDocs);
+    if (criteriaDocs.length === 0) {
+      // ลองค้นหาแบบบางส่วน
+      logger.info('ไม่พบการจับคู่ที่ตรง ลองค้นหาแบบบางส่วนสำหรับ keyword');
+      const keywordParts = keyword.split(' ').filter(Boolean);
+      const regexes = keywordParts.map(part => new RegExp(part, 'i'));
+
+      criteriaDocs = await Criteria.find({
+        $or: regexes.map(regex => ({ assetName: regex }))
+      }).limit(5);
+      logger.info(`พบ criteria จำนวน ${criteriaDocs.length} รายการจากการค้นหาแบบบางส่วน`);
+    }
+
+    if (criteriaDocs.length === 0) {
+      logger.info(`ไม่พบ criteria ที่ตรงกับ keyword: "${keyword}"`);
+      return [];
+    }
+  } else {
+    criteriaDocs = [osOnlyCriteria];
+    logger.info('ใช้ criteria ที่พบจาก operating_system');
   }
-
-  if (criteriaDocs.length === 0) {
-    console.log(`No matching criteria found for keyword: ${keyword}`);
-    // หากไม่มี criteria สำหรับ os_version ก็ยังคงใช้แค่ osOnlyCriteria
-  }
-
-  // 3. รวม criteria ที่ได้จากการค้นหาทั้งสองขั้นตอน (1 + up to 5)
-  const allCriteria = [osOnlyCriteria, ...criteriaDocs].slice(0, 6); // จำกัดรวมสูงสุด 6 ค่า
-  // console.log('All combined criteria (up to 6):', allCriteria);
+  
+  // รวม criteria (สูงสุด 6 รายการ)
+  const allCriteria = criteriaDocs.slice(0, 6);
+  logger.info(`จำนวน criteria ทั้งหมดที่จะประมวลผล: ${allCriteria.length}`);
 
   const vulnerabilities = [];
   const wss = getWss();
-  const cpeNamesUsed = []; // เก็บค่า cpeNames ที่ถูกใช้ทั้งหมด
+  const cpeNamesUsed = [];
+  broadcastStatus(`กำลังประมวลผล criteria สำหรับ Asset: ${asset.device_name}`);
 
-  // 4. ดึงข้อมูลจาก criterias ทั้งหมดที่หาได้
+  // ดึงข้อมูลโดยใช้ criteria
   for (const doc of allCriteria) {
-    if (!doc) continue; // เพิ่มการตรวจสอบนี้เพื่อหลีกเลี่ยงข้อผิดพลาด
+    if (!doc) continue;
     const cpeName = doc.criteria;
+    logger.info(`ประมวลผล cpeName: "${cpeName}"`);
     if (!cpeNamesUsed.includes(cpeName)) {
-      cpeNamesUsed.push(cpeName); // เก็บ cpeName ที่ใช้ดึงข้อมูล
+      cpeNamesUsed.push(cpeName);
     }
+    broadcastStatus(`ดึงข้อมูล CVE จาก NVD สำหรับ cpeName: ${cpeName}`);
+
     const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=${encodeURIComponent(cpeName)}`;
 
     try {
+      logger.info(`ดึงข้อมูล CVEs จาก URL: ${url}`);
       const response = await axiosInstance.get(url);
       const cves = response.data.vulnerabilities;
+      logger.info(`ดึง CVEs จำนวน ${cves.length} รายการสำหรับ cpeName: "${cpeName}"`);
+      broadcastStatus(`ดึงข้อมูล CVE สำเร็จสำหรับ cpeName: ${cpeName}`);
 
-      // ประมวลผลข้อมูล CVEs
+      // ประมวลผล CVEs
       for (let i = 0; i < cves.length; i += 10) {
         const batch = cves.slice(i, i + 10);
+        logger.info(`ประมวลผล CVE ชุดที่ ${i / 10 + 1}: จำนวน ${batch.length} รายการ`);
 
         for (const vuln of batch) {
-          // ตรวจสอบว่า CVE นี้มีอยู่แล้วในฐานข้อมูลหรือไม่
+          // ตรวจสอบว่า CVE มีอยู่แล้วหรือไม่
           const existingCve = await Cve.findOne({ id: vuln.cve.id });
 
-          // 5. หากยังไม่มี CVE นี้ให้เพิ่มใหม่
+          // ถ้าไม่มี ให้เพิ่ม CVE ใหม่
           if (!existingCve) {
+            logger.info(`เพิ่ม CVE ใหม่: ${vuln.cve.id}`);
             await Cve.updateOne(
               { id: vuln.cve.id },
               {
@@ -247,7 +261,7 @@ const fetchDataFromApi = async (asset, userId) => {
                   references: vuln.cve.references || [],
                 },
               },
-              { upsert: true }  // ใช้ upsert เพื่ออัปเดตหรือเพิ่มใหม่
+              { upsert: true }
             );
 
             const cvss = getCvssScore(vuln.cve);
@@ -263,6 +277,10 @@ const fetchDataFromApi = async (asset, userId) => {
                   }))
                 )
               ) || [];
+
+            // เรียกใช้ฟังก์ชัน generateMitigationAdvice เพื่อสร้างคำแนะนำการแก้ไขช่องโหว่
+            const advice = await generateMitigationAdvice(vuln.cve.id);
+            logger.info(`คำแนะนำการแก้ไขช่องโหว่สำหรับ CVE ${vuln.cve.id}: ${advice}`);
 
             const vulnerabilityData = {
               asset: asset._id,
@@ -280,7 +298,8 @@ const fetchDataFromApi = async (asset, userId) => {
               cvssVersion: cvss.version,
               cvssScore: score,
               weaknesses: vuln.cve.weaknesses,
-              cpeNameUsed: cpeNamesUsed, // บันทึก cpeNames ทั้งหมดที่ใช้ดึงข้อมูล
+              cpeNameUsed: cpeNamesUsed,
+              mitigationAdvice: advice, // เพิ่มฟิลด์นี้เพื่อเก็บคำแนะนำการแก้ไขช่องโหว่
             };
 
             await Vulnerability.updateOne(
@@ -289,7 +308,7 @@ const fetchDataFromApi = async (asset, userId) => {
               { upsert: true }
             );
 
-            // ตรวจสอบการแจ้งเตือนก่อนสร้างใหม่
+            // ตรวจสอบการแจ้งเตือน
             const notificationMessage = `New CVE for asset ${asset.device_name}: ${vuln.cve.id}`;
             const existingNotification = await Notification.findOne({ message: notificationMessage });
             if (!existingNotification) {
@@ -297,25 +316,36 @@ const fetchDataFromApi = async (asset, userId) => {
                 const notificationData = { type: 'notification', message: notificationMessage };
                 wss.broadcast(notificationData);
 
-                // บันทึกการแจ้งเตือนในฐานข้อมูล
+                // บันทึกการแจ้งเตือน
                 const notification = new Notification({ message: notificationMessage });
                 await notification.save();
               }
             }
+          } else {
+            logger.info(`CVE ${vuln.cve.id} มีอยู่ในฐานข้อมูลแล้ว`);
           }
         }
 
         if (i + 10 < cves.length) {
-          await delay(3000); // ชะลอเพื่อเคารพข้อจำกัดของ API
+          logger.info('รอ 3 วินาทีก่อนดำเนินการชุดถัดไป');
+          await delay(3000);
         }
       }
 
-      await delay(3000); // ชะลอระหว่างการดึงข้อมูลแต่ละ cpeName
+      logger.info('รอ 3 วินาทีก่อนดำเนินการ cpeName ถัดไป');
+      await delay(3000);
 
     } catch (error) {
-      logger.error(`Error fetching data for cpeName: ${cpeName} %o`, error); // ใช้ logger.error
+      logger.error(`เกิดข้อผิดพลาดในการดึงข้อมูลสำหรับ cpeName: ${cpeName}`, error);
+      logger.info('ไม่พบ cpeName ในฐานข้อมูล');
+      broadcastStatus(`เกิดข้อผิดพลาดในการดึงข้อมูล CVE สำหรับ cpeName: ${cpeName}`);
+
+      continue; // ข้ามไปยัง cpeName ถัดไป
     }
   }
+
+  logger.info('การประมวลผลเสร็จสิ้น');
+  broadcastStatus(`ประมวลผล Asset ${asset.device_name} เสร็จสิ้น`);
 
   return vulnerabilities;
 };
@@ -324,10 +354,12 @@ const mapAssetsToCves = async (asset = null, userId) => {
   try {
     const assets = asset ? [asset] : await Asset.find();
     const wss = getWss();
+        broadcastStatus(`เริ่มแมป CVEs สำหรับ Asset: ${assetItem.device_name}`);
 
     for (const assetItem of assets) {
       // เพิ่มการบันทึก Log เพื่อแสดง Asset และ OS ที่กำลังประมวลผล
       logger.info(`Mapping CVEs for asset: ${assetItem.device_name}, OS: ${assetItem.operating_system} ${assetItem.os_version}`);
+      broadcastStatus(`เริ่มแมป CVEs สำหรับ Asset: ${assetItem.device_name}`);
 
       // ส่งข้อมูลความคืบหน้าผ่าน WebSocket (ถ้าต้องการ)
       if (wss) {
@@ -397,6 +429,8 @@ const mapAssetsToCves = async (asset = null, userId) => {
             // บันทึกการแจ้งเตือนในฐานข้อมูล
             const notification = new Notification({ message: notificationMessage });
             await notification.save();
+            broadcastStatus(`แมป CVEs สำหรับ Asset ${assetItem.device_name} เสร็จสิ้น`);
+
           }
         }
       }
@@ -430,14 +464,14 @@ router.get("/update", authenticate, async (req, res) => {
 });
 
 router.get(
-  "/vulnerabilities",
+  '/vulnerabilities',
   [
-    query("operating_system").optional().isString().trim().escape(),
-    query("os_version").optional().isString().trim().escape(),
-    query("keyword").optional().isString().trim().escape(),
-    query("riskLevel").optional().isString().trim().escape(), 
-    query("page").optional().isInt({ min: 1 }).toInt(),
-    query("limit").optional().isInt({ min: 1 }).toInt(),
+    query('operating_system').optional().isString().trim().escape(),
+    query('os_version').optional().isString().trim().escape(),
+    query('keyword').optional().isString().trim().escape(),
+    query('riskLevel').optional().isString().trim().escape(), 
+    query('page').optional().isInt({ min: 1 }).toInt(),
+    query('limit').optional().isInt({ min: 1 }).toInt().default(50),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -455,7 +489,7 @@ router.get(
         limit = 50,
       } = req.query;
 
-      let vulnerabilitiesQuery = {};
+      const vulnerabilitiesQuery = {};
 
       if (operating_system) {
         vulnerabilitiesQuery.operating_system = operating_system;
@@ -467,10 +501,8 @@ router.get(
 
       if (keyword) {
         vulnerabilitiesQuery.$or = [
-          { operating_system: { $regex: new RegExp(keyword, "i") } },
-          { assetName: { $regex: new RegExp(keyword, "i") } },
-          { os_version: { $regex: new RegExp(keyword, "i") } },
-          { "descriptions.value": { $regex: new RegExp(keyword, "i") } },
+          { operating_system: { $regex: new RegExp(keyword, 'i') } },
+          { 'descriptions.value': { $regex: new RegExp(keyword, 'i') } },
         ];
       }
 
@@ -486,11 +518,12 @@ router.get(
 
       res.json({ mappedVulnerabilities: vulnerabilities, totalCount });
     } catch (error) {
-      logger.error("Error fetching vulnerabilities: %o", error); // ใช้ logger.error
-      res.status(500).send("Error fetching data");
+      logger.error('Error fetching vulnerabilities: %o', error);
+      res.status(500).send('Error fetching data');
     }
   }
 );
+
 
 router.get('/assets/os-versions', authenticate, async (req, res) => {
   try {

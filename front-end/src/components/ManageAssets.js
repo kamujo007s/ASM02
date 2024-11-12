@@ -1,5 +1,4 @@
 // ManageAssets.js
-
 import React, { useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
@@ -20,37 +19,23 @@ const ManageAssets = () => {
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const { addNotification } = useContext(NotificationContext);
+  const [csrfToken, setCsrfToken] = useState('');
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const ws = new WebSocket(`ws://localhost:3012?token=${token}`);
-
-    ws.onmessage = (event) => {
-      let data;
+    // Fetch CSRF token when component mounts
+    const fetchCsrfToken = async () => {
       try {
-        data = JSON.parse(event.data);
-      } catch (e) {
-        console.error('Error parsing WebSocket message:', e);
-        data = { type: 'text', message: event.data };
-      }
-
-      if (data.type === 'notification' || data.type === 'text') {
-        toast.info(data.message, { position: 'top-right' });
-        addNotification(data.message);
-      } else if (data.type === 'progress') {
-        // แสดงข้อความความคืบหน้า
-        toast.info(data.message, { position: 'top-right', autoClose: false });
+        const response = await axios.get('http://localhost:3012/api/csrf-token', {
+          withCredentials: true,
+        });
+        setCsrfToken(response.data.csrfToken);
+      } catch (error) {
+        console.error('Error fetching CSRF token:', error);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [addNotification]);
+    fetchCsrfToken();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -62,7 +47,27 @@ const ManageAssets = () => {
 
   const handleFileChange = (info) => {
     const { fileList } = info;
-    setFile(fileList[0]);
+    if (fileList.length > 0) {
+      const fileSize = fileList[0].size;
+      const allowedSize = 5 * 1024 * 1024; // Maximum size 5MB
+      const allowedTypes = [
+        'text/csv',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+      ];
+
+      if (fileSize > allowedSize) {
+        toast.error('File is too large, maximum size is 5MB', { position: 'top-right' });
+        setFile(null);
+      } else if (!allowedTypes.includes(fileList[0].type)) {
+        toast.error('Invalid file type, only CSV and Excel are allowed', { position: 'top-right' });
+        setFile(null);
+      } else {
+        setFile(fileList[0]);
+      }
+    } else {
+      setFile(null);
+    }
   };
 
   const resetForm = () => {
@@ -85,12 +90,11 @@ const ManageAssets = () => {
     setIsUploading(true);
 
     try {
-      const token = localStorage.getItem('token');
-
       await axios.post('http://localhost:3012/api/assets', values, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          'X-CSRF-Token': csrfToken,
         },
+        withCredentials: true, // Automatically send cookies
       });
 
       toast.update(id, {
@@ -101,7 +105,6 @@ const ManageAssets = () => {
       });
 
       addNotification(`Asset ${values.device_name} added successfully`);
-
     } catch (error) {
       console.error('Error adding asset:', error);
       toast.update(id, {
@@ -130,13 +133,12 @@ const ManageAssets = () => {
     const id = toast.loading('Uploading file...', { position: 'top-right' });
 
     try {
-      const token = localStorage.getItem('token');
-
       await axios.post('http://localhost:3012/api/assets/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          Authorization: `Bearer ${token}`,
+          'X-CSRF-Token': csrfToken,
         },
+        withCredentials: true, // Automatically send cookies
       });
 
       toast.update(id, {
@@ -144,11 +146,9 @@ const ManageAssets = () => {
         type: 'success',
         isLoading: false,
         autoClose: 3000,
-        position: 'top-right',
       });
 
       addNotification('File uploaded successfully');
-
     } catch (error) {
       console.error('Error uploading file:', error);
       if (error.response) {
@@ -157,7 +157,6 @@ const ManageAssets = () => {
           type: 'error',
           isLoading: false,
           autoClose: 3000,
-          position: 'top-right',
         });
       } else if (error.message === 'Network Error') {
         toast.update(id, {
@@ -165,7 +164,6 @@ const ManageAssets = () => {
           type: 'error',
           isLoading: false,
           autoClose: 3000,
-          position: 'top-right',
         });
       } else {
         toast.update(id, {
@@ -173,7 +171,6 @@ const ManageAssets = () => {
           type: 'error',
           isLoading: false,
           autoClose: 3000,
-          position: 'top-right',
         });
       }
     } finally {
@@ -199,7 +196,13 @@ const ManageAssets = () => {
 
         <Card
           title="Add Asset Manually"
-          style={{ backgroundColor: '#ffffff', color: '#1f1f1f', marginBottom: '20px', width: '100%', maxWidth: '600px' }}
+          style={{
+            backgroundColor: '#ffffff',
+            color: '#1f1f1f',
+            marginBottom: '20px',
+            width: '100%',
+            maxWidth: '600px',
+          }}
         >
           <Form onFinish={handleSubmit} layout="vertical">
             <Form.Item
@@ -230,11 +233,7 @@ const ManageAssets = () => {
             >
               <Input name="os_version" value={asset.os_version} onChange={handleChange} />
             </Form.Item>
-            <Form.Item
-              label="Contact Options"
-              name="contact"
-              rules={[{ required: false }]}
-            >
+            <Form.Item label="Contact Options" name="contact" rules={[{ required: false }]}>
               <Input name="contact" value={asset.contact} onChange={handleChange} />
             </Form.Item>
             <Form.Item>
@@ -247,9 +246,16 @@ const ManageAssets = () => {
           <h3 style={{ textAlign: 'center', margin: '20px 0' }}>or Upload file</h3>
 
           <Upload beforeUpload={() => false} onChange={handleFileChange} maxCount={1} disabled={isUploading}>
-            <Button icon={<UploadOutlined />} disabled={isUploading}>Select File</Button>
+            <Button icon={<UploadOutlined />} disabled={isUploading}>
+              Select File
+            </Button>
           </Upload>
-          <Button type="primary" onClick={handleUpload} disabled={!file || isUploading} style={{ marginTop: '20px' }}>
+          <Button
+            type="primary"
+            onClick={handleUpload}
+            disabled={!file || isUploading}
+            style={{ marginTop: '20px' }}
+          >
             Upload
           </Button>
         </Card>

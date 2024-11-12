@@ -1,3 +1,4 @@
+//Top5OSCurrentYearTable.js
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Table } from 'antd';
@@ -11,7 +12,7 @@ const Top5OSCurrentYearTable = () => {
       try {
         const token = localStorage.getItem('token');
         const response = await axios.get('http://localhost:3012/cve/top-5-os-current-year', {
-          headers: { Authorization: `Bearer ${token}` },
+          withCredentials: true,
         });
 
         setTop5OS(response.data);

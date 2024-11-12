@@ -3,9 +3,11 @@ const express = require('express');
 const cron = require('node-cron');
 const helmet = require('helmet');
 const cors = require('cors');
-const path = require('path');
 const os = require('os');
 const http = require('http');
+const csrf = require('csurf');
+const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
 const app = express();
 const connectDB = require('./db/connection');
 const Asset = require('./models/asset');
@@ -15,23 +17,55 @@ const authRoutes = require('./routes/auth');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
 const authenticateMiddleware = require('./middleware/authenticate');
-const rateLimit = require('express-rate-limit');
 const NodeCache = require('node-cache');
 const myCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
 require('dotenv').config();
 
 const { router: cveRoutes, fetchDataFromApi, mapAssetsToCves } = require('./routes/route');
-
 const { initializeWebSocket } = require('./websocket'); // Import initializeWebSocket
 
+// ใช้ helmet เพื่อเพิ่ม security headers
 app.use(helmet());
-app.use(cors());
+
+// กำหนดค่า CORS policy
+const corsOptions = {
+  origin: 'http://localhost:3000', // Frontend URL
+  credentials: true, // อนุญาตให้ส่งคุกกี้ไปด้วย
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+};
+
+app.use(cors(corsOptions));
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(morgan('combined'));
+app.use(cookieParser());
+
+// CSRF Protection Middleware
+const csrfProtection = csrf({ cookie: true });
+app.use(csrfProtection);
+
+// ส่ง CSRF Token ให้ Front-End
+app.get('/api/csrf-token', (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
 
 // Database connection
 connectDB();
+// Rate limit for login route
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 login attempts per 15 minutes
+  message: 'Too many login attempts, please try again later.'
+});
+
+app.use('/api/auth/login', loginLimiter);
+
+// API Routes with rate limit
+app.use('/api/assets', authenticateMiddleware, assetRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/cve', authenticateMiddleware, cveRoutes);
 
 // Rate limit for notifications API
 const notificationsLimiter = rateLimit({
@@ -40,13 +74,6 @@ const notificationsLimiter = rateLimit({
   message: 'Too many requests, please try again later.',
 });
 
-// API Routes with rate limit
-app.use('/api/assets', authenticateMiddleware, assetRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/cve', authenticateMiddleware, cveRoutes);
-
-
-// Use the rate limiter for the notifications route
 app.use('/cve/notifications', notificationsLimiter, authenticateMiddleware, async (req, res) => {
   const cachedNotifications = myCache.get('notifications');
 
@@ -68,6 +95,7 @@ const server = http.createServer(app);
 
 // Initialize WebSocket server
 initializeWebSocket(server);
+
 // Schedule tasks
 const fetchCveDataOnStart = async () => {
   try {
@@ -118,7 +146,6 @@ cron.schedule('0 0 * * *', async () => {
 const PORT = process.env.PORT || 3012;
 
 const ifaces = os.networkInterfaces();
-
 let ipAddress = '127.0.0.1';
 
 Object.keys(ifaces).forEach(function (ifname) {
@@ -136,5 +163,4 @@ server.listen(PORT, '0.0.0.0', async () => {
   
   // Fetch initial CVE data
   await fetchCveDataOnStart();
-
 });

@@ -1,4 +1,3 @@
-// NotificationBox.js
 import React, { useContext, useEffect } from 'react';
 import { NotificationContext } from '../context/NotificationContext';
 import { List, Typography, Drawer } from 'antd';

@@ -1,4 +1,3 @@
-// websocket.js
 const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
 const cookie = require('cookie');

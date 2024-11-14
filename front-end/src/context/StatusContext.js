@@ -1,4 +1,3 @@
-// context/StatusContext.js
 import React, { createContext, useState, useEffect, useRef } from 'react';
 
 export const StatusContext = createContext();
@@ -18,7 +17,12 @@ export const StatusProvider = ({ children }) => {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'status') {
-        setStatuses((prevStatuses) => [...prevStatuses, data.status]);
+        setStatuses((prevStatuses) => {
+          if (!prevStatuses.includes(data.status)) {
+            return [...prevStatuses, data.status];
+          }
+          return prevStatuses;
+        });
       }
     };
 

@@ -1,4 +1,3 @@
-// routes/asset.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -12,6 +11,7 @@ const { body, validationResult } = require('express-validator');
 const authenticate = require('../middleware/authenticate');
 const Notification = require('../models/notification');
 const logger = require('../logger');
+const { getWss } = require('../websocket');
 
 // Config Multer for file upload
 const storage = multer.diskStorage({
@@ -82,6 +82,7 @@ const processCsv = async (filePath) => {
 router.use(authenticate);
 
 router.post('/upload', upload.single('file'), async (req, res) => {
+  const wss = getWss();
   try {
     const fileType = path.extname(req.file.originalname).toLowerCase();
     let assets = [];
@@ -118,19 +119,27 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     await Asset.insertMany(assets);
 
-    const io = req.app.get('io');
+    if (wss) {
+      wss.broadcast({ type: 'status', status: 'เริ่มต้นการแมป CVE สำหรับ Asset' });
+    }
 
     for (const asset of assets) {
       try {
         await mapAssetsToCves(asset, userId);
+        if (wss) {
+          wss.broadcast({ type: 'status', status: `ดึงข้อมูล CVE สำเร็จสำหรับ Asset: ${asset.device_name}` });
+        }
       } catch (error) {
         logger.error('Error mapping asset to CVEs:', error);
+        if (wss) {
+          wss.broadcast({ type: 'status', status: `เกิดข้อผิดพลาดในการดึงข้อมูล CVE สำหรับ Asset: ${asset.device_name}` });
+        }
       }
     }
 
-    if (io) {
+    if (wss) {
       const notificationMessage = `New assets added from file: ${req.file.originalname}`;
-      io.emit('notification', { type: 'notification', message: notificationMessage });
+      wss.broadcast({ type: 'notification', message: notificationMessage });
       const notification = new Notification({ message: notificationMessage });
       await notification.save();
     }
@@ -163,20 +172,34 @@ router.post(
       return res.status(400).json({ errors: errors.array() });
     }
 
+    const wss = getWss();
+
     try {
       const newAsset = new Asset(req.body);
       await newAsset.save();
 
       const userId = req.user.userId; // ดึง userId จาก middleware authenticate
 
-      // ไม่ต้องใช้ await ที่นี่ เพื่อไม่ให้บล็อกการตอบกลับ
-      mapAssetsToCves(newAsset, userId);
+      if (wss) {
+        wss.broadcast({ type: 'status', status: `เริ่มต้นการแมป CVE สำหรับ Asset: ${newAsset.device_name}` });
+      }
 
-      // Send notification via Socket.IO
-      const io = req.app.get('io');
-      if (io) {
+      // ไม่ต้องใช้ await ที่นี่ เพื่อไม่ให้บล็อกการตอบกลับ
+      mapAssetsToCves(newAsset, userId).then(() => {
+        if (wss) {
+          wss.broadcast({ type: 'status', status: `ดึงข้อมูล CVE สำเร็จสำหรับ Asset: ${newAsset.device_name}` });
+        }
+      }).catch((error) => {
+        logger.error('Error mapping asset to CVEs:', error);
+        if (wss) {
+          wss.broadcast({ type: 'status', status: `เกิดข้อผิดพลาดในการดึงข้อมูล CVE สำหรับ Asset: ${newAsset.device_name}` });
+        }
+      });
+
+      // Send notification via WebSocket
+      if (wss) {
         const notificationMessage = `New asset added: ${newAsset.device_name}`;
-        io.emit('notification', { type: 'notification', message: notificationMessage });
+        wss.broadcast({ type: 'notification', message: notificationMessage });
 
         // Save notification in database
         const notification = new Notification({ message: notificationMessage });

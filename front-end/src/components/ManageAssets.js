@@ -1,11 +1,11 @@
-// ManageAssets.js
 import React, { useState, useContext, useEffect } from 'react';
 import axios from 'axios';
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { ConfigProvider, theme, Form, Input, Button, Card, Upload } from 'antd';
-import { UploadOutlined } from '@ant-design/icons';
+import { ConfigProvider, theme, Form, Input, Button, Card, Upload, Modal, Timeline, Spin, Typography } from 'antd';
+import { UploadOutlined, LoadingOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { NotificationContext } from '../context/NotificationContext';
+import { StatusContext } from '../context/StatusContext';
 
 const ManageAssets = () => {
   const [asset, setAsset] = useState({
@@ -19,7 +19,9 @@ const ManageAssets = () => {
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const { addNotification } = useContext(NotificationContext);
+  const { statuses } = useContext(StatusContext); // ใช้ StatusContext
   const [csrfToken, setCsrfToken] = useState('');
+  const [isModalVisible, setIsModalVisible] = useState(false); // สถานะของ Modal
 
   useEffect(() => {
     // Fetch CSRF token when component mounts
@@ -259,6 +261,31 @@ const ManageAssets = () => {
             Upload
           </Button>
         </Card>
+
+        <Button type="primary" onClick={() => setIsModalVisible(true)} style={{ marginTop: '20px' }}>
+          View Status
+        </Button>
+
+        <Modal
+          title="Status"
+          visible={isModalVisible}
+          onCancel={() => setIsModalVisible(false)}
+          footer={null}
+        >
+          <Spin spinning={statuses.length === 0}>
+            <Timeline>
+              {statuses.map((status, index) => (
+                <Timeline.Item
+                  key={index}
+                  dot={status.includes('กำลังดำเนินการ') ? <LoadingOutlined /> : <CheckCircleOutlined />}
+                  color={status.includes('กำลังดำเนินการ') ? 'blue' : 'green'}
+                >
+                  <Typography.Text>{status}</Typography.Text>
+                </Timeline.Item>
+              ))}
+            </Timeline>
+          </Spin>
+        </Modal>
       </div>
     </ConfigProvider>
   );

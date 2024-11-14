@@ -1,23 +1,28 @@
-// Navbar.js
-import React, { useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Menu, ConfigProvider, Badge, Button, message } from 'antd';
+import { Menu, ConfigProvider, Badge, Button, message, Modal, Timeline, Typography } from 'antd';
 import {
   HomeOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   LogoutOutlined,
   BellOutlined,
+  EyeOutlined,
+  LoadingOutlined, // เพิ่มไอคอนสำหรับสถานะการโหลด
+  CheckCircleOutlined, // เพิ่มไอคอนสำหรับสถานะเสร็จสิ้น
 } from '@ant-design/icons';
 import { AuthContext } from '../context/AuthContext';
 import { NotificationContext } from '../context/NotificationContext';
+import { StatusContext } from '../context/StatusContext'; // เพิ่มการนำเข้า StatusContext
 import Logo from '../pic/ASM CVE-2.png'; // ปรับเส้นทางตามความเหมาะสม
 import axios from 'axios';
 
 const Navbar = () => {
   const { auth, setAuth, csrfToken } = useContext(AuthContext); // เพิ่ม csrfToken
   const { notifications, toggleVisibility } = useContext(NotificationContext);
+  const { statuses } = useContext(StatusContext); // ใช้ StatusContext
   const navigate = useNavigate();
+  const [isModalVisible, setIsModalVisible] = useState(false); // สถานะของ Modal
 
   const handleLogout = async () => {
     try {
@@ -72,6 +77,11 @@ const Navbar = () => {
         </span>
       ),
     },
+    isLoggedIn && {
+      key: 'status',
+      icon: <EyeOutlined style={{ fontSize: '20px' }} />, // ใช้ไอคอน EyeOutlined สำหรับสถานะ
+      label: <span onClick={() => setIsModalVisible(true)} style={{ color: '#000000', cursor: 'pointer' }}>Status</span>,
+    },
     isLoggedIn ? {
       key: 'logout',
       icon: <LogoutOutlined style={{ fontSize: '20px' }} />,
@@ -105,6 +115,24 @@ const Navbar = () => {
           items={menuItems} // ใช้ items แทน children
         />
       </div>
+      <Modal
+        title="Status"
+        visible={isModalVisible}
+        onCancel={() => setIsModalVisible(false)}
+        footer={null}
+      >
+        <Timeline>
+          {statuses.map((status, index) => (
+            <Timeline.Item
+              key={index}
+              dot={status.includes('กำลังดำเนินการ') ? <LoadingOutlined /> : <CheckCircleOutlined />}
+              color={status.includes('กำลังดำเนินการ') ? 'blue' : 'green'}
+            >
+              <Typography.Text>{status}</Typography.Text>
+            </Timeline.Item>
+          ))}
+        </Timeline>
+      </Modal>
     </ConfigProvider>
   );
 };

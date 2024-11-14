@@ -91,19 +91,17 @@ const getRiskLevel = (score, version) => {
 };
 
 const fetchDataFromApi = async (asset, userId) => {
-  
   broadcastStatus(`เริ่มประมวลผล Asset: ${asset.device_name}`);
 
   if (!asset || !asset.operating_system || !asset.os_version) {
     logger.info('Asset ไม่มีข้อมูลที่จำเป็น');
     broadcastStatus(`Asset ${asset.device_name} ไม่มีข้อมูลที่จำเป็น`);
-
     return [];
   }
-  
+
   let { operating_system, os_version } = asset;
   let keyword = `${operating_system} ${os_version}`.trim();
-  
+
   logger.info(`เริ่มประมวลผล Asset ด้วย operating_system: ${operating_system}, os_version: ${os_version}`);
   broadcastStatus(`กำลังดึงข้อมูล OsFormat สำหรับ Asset: ${asset.device_name}`);
 
@@ -204,7 +202,7 @@ const fetchDataFromApi = async (asset, userId) => {
     criteriaDocs = [osOnlyCriteria];
     logger.info('ใช้ criteria ที่พบจาก operating_system');
   }
-  
+
   // รวม criteria (สูงสุด 6 รายการ)
   const allCriteria = criteriaDocs.slice(0, 6);
   logger.info(`จำนวน criteria ทั้งหมดที่จะประมวลผล: ${allCriteria.length}`);
@@ -354,7 +352,6 @@ const mapAssetsToCves = async (asset = null, userId) => {
   try {
     const assets = asset ? [asset] : await Asset.find();
     const wss = getWss();
-        broadcastStatus(`เริ่มแมป CVEs สำหรับ Asset: ${assetItem.device_name}`);
 
     for (const assetItem of assets) {
       // เพิ่มการบันทึก Log เพื่อแสดง Asset และ OS ที่กำลังประมวลผล
@@ -429,17 +426,16 @@ const mapAssetsToCves = async (asset = null, userId) => {
             // บันทึกการแจ้งเตือนในฐานข้อมูล
             const notification = new Notification({ message: notificationMessage });
             await notification.save();
-            broadcastStatus(`แมป CVEs สำหรับ Asset ${assetItem.device_name} เสร็จสิ้น`);
-
           }
         }
       }
+
+      broadcastStatus(`แมป CVEs สำหรับ Asset ${assetItem.device_name} เสร็จสิ้น`);
     }
   } catch (error) {
     logger.error("Error mapping assets to CVEs: %o", error);
   }
 };
-
 
 router.get("/update", authenticate, async (req, res) => {
   try {

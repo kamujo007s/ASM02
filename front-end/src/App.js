@@ -10,6 +10,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import { AuthProvider } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
+import { StatusProvider } from './context/StatusContext'; // เพิ่มการนำเข้า StatusProvider
 import PrivateRoute from './components/PrivateRoute';
 import NotificationBox from './components/NotificationBox';
 import VulnerabilityDetail from "./components/VulnerabilityDetail";
@@ -48,9 +49,11 @@ function App() {
     >
       <NotificationProvider>
         <AuthProvider>
-          <Router>
-            <AppContent />
-          </Router>
+          <StatusProvider> {/* ห่อด้วย StatusProvider */}
+            <Router>
+              <AppContent />
+            </Router>
+          </StatusProvider>
         </AuthProvider>
       </NotificationProvider>
     </ConfigProvider>
